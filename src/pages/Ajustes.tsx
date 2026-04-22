@@ -131,35 +131,48 @@ export default function Ajustes() {
                 <div>
                   <h3 className="text-sm font-black uppercase tracking-widest text-black">Logo del Negocio</h3>
                   <p className="text-[10px] font-mono text-gray-500 uppercase tracking-widest mt-1">
-                    Esta imagen se mostrará en el ticket, pantalla de inicio y reportes.
+                    Sube una imagen o pega un enlace directo (URL).
                   </p>
                 </div>
-                
-                <div className="flex flex-wrap gap-2 justify-center md:justify-start">
-                  <input 
-                    type="file" 
-                    ref={fileInputRef} 
-                    className="hidden" 
-                    accept="image/*"
-                    onChange={manejarSubidaLogo}
-                  />
-                  <button 
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={subiendoLogo}
-                    className="bg-white border-2 border-black px-4 py-2 text-xs font-black uppercase flex items-center gap-2 hover:bg-gray-100 transition-colors disabled:opacity-50"
-                  >
-                    <Upload size={14} /> {subiendoLogo ? 'Subiendo...' : 'Subir Logo'}
-                  </button>
-                  {nuevoLogoUrl && (
+
+                <div className="space-y-4">
+                  <div className="flex flex-wrap gap-2 justify-center md:justify-start">
+                    <input 
+                      type="file" 
+                      ref={fileInputRef} 
+                      className="hidden" 
+                      accept="image/*"
+                      onChange={manejarSubidaLogo}
+                    />
                     <button 
-                      type="button" 
-                      onClick={() => setNuevoLogoUrl('')}
-                      className="text-red-600 text-xs font-bold uppercase hover:underline"
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={subiendoLogo}
+                      className="bg-white border-2 border-black px-4 py-2 text-xs font-black uppercase flex items-center gap-2 hover:bg-black hover:text-white transition-all disabled:opacity-50"
                     >
-                      Remover
+                      <Upload size={14} /> {subiendoLogo ? 'Subiendo...' : 'Subir Archivo'}
                     </button>
-                  )}
+                    {nuevoLogoUrl && (
+                      <button 
+                        type="button" 
+                        onClick={() => setNuevoLogoUrl('')}
+                        className="text-red-600 text-[10px] font-black uppercase hover:underline"
+                      >
+                        Limpiar Logo
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="relative">
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">O Pegar URL Directa</label>
+                    <input 
+                      type="url"
+                      placeholder="https://ejemplo.com/mifoto.jpg"
+                      value={nuevoLogoUrl}
+                      onChange={e => setNuevoLogoUrl(e.target.value)}
+                      className="w-full text-xs font-mono p-2 border-2 border-black bg-gray-50 focus:outline-none focus:border-yellow-400"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
