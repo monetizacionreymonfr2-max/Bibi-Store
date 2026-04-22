@@ -82,7 +82,7 @@ service cloud.firestore {
              && data.precio_usd is number && data.precio_usd >= 0
              && data.stock is number && data.stock >= 0
              && data.codigo_barras is string && data.codigo_barras.size() <= 100
-             && (!hasImage || (data.imagen_url is string && data.imagen_url.size() <= 600000));
+             && (!hasImage || (data.imagen_url is string && data.imagen_url.size() <= 2000)); // URL much smaller than Base64
     }
 
     function isValidCostoProducto(data) {
@@ -161,7 +161,7 @@ service cloud.firestore {
       
       allow update: if isValidId(productoId) && isValidProducto(incoming()) && (
         (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['nombre', 'precio_usd', 'stock', 'codigo_barras', 'imagen_url'])) ||
-        (isCajero() && incoming().diff(existing()).affectedKeys().hasOnly(['stock']))
+        (isCajero() && incoming().diff(existing()).affectedKeys().hasOnly(['stock']) && incoming().stock < existing().stock)
       );
       
       allow delete: if isAdmin() && isValidId(productoId);

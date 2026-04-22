@@ -4,6 +4,7 @@ import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 import { useConfig } from '../contexts/ConfigContext';
 import { Settings, Save } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import toast from 'react-hot-toast';
 
 export default function Ajustes() {
   const { tasaDolar } = useConfig();
@@ -20,6 +21,7 @@ export default function Ajustes() {
   const guardarTasa = async (e: React.FormEvent) => {
     e.preventDefault();
     setGuardando(true);
+    const loadingToast = toast.loading("Actualizando tasa...");
     try {
       const ref = doc(db, 'configuracion', 'general');
       const docSnap = await getDoc(ref);
@@ -30,13 +32,14 @@ export default function Ajustes() {
         if (role === 'admin' || role === 'superadmin' || role === 'cajero') {
           await setDoc(ref, { tasa_dolar: Number(nuevaTasa) });
         } else {
-          alert("El documento de configuración no existe y no tienes permisos para crearlo.");
+          toast.error("El documento no existe y no tienes permisos.", { id: loadingToast });
+          return;
         }
       }
-      alert("Tasa actualizada correctamente.");
+      toast.success("Tasa actualizada correctamente", { id: loadingToast });
     } catch (err) {
       console.error(err);
-      alert("Error al actualizar la tasa.");
+      toast.error("Error al actualizar la tasa", { id: loadingToast });
     } finally {
       setGuardando(false);
     }

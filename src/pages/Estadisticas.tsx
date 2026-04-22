@@ -9,6 +9,7 @@ import { BarChart, DollarSign, TrendingUp, PackageSearch, Download, ChevronDown,
 import { format } from 'date-fns';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import toast from 'react-hot-toast';
 
 export default function Estadisticas() {
   const { role } = useAuth();
@@ -67,9 +68,10 @@ export default function Estadisticas() {
     if (!confirm("¿Seguro que quieres eliminar esta venta? Esta acción no se puede deshacer y afectará los reportes.")) return;
     try {
       await deleteDoc(doc(db, 'ventas', id));
+      toast.success("Venta eliminada");
     } catch (err) {
       console.error(err);
-      alert("Error al eliminar la venta.");
+      toast.error("Error al eliminar la venta.");
     }
   };
 
@@ -121,9 +123,10 @@ export default function Estadisticas() {
       doc.text('¡Gracias por su compra!', 105, 280, { align: 'center' });
       
       doc.save(`Factura_BibiStore_${venta.id}.pdf`);
+      toast.success("Factura descargada");
     } catch (error) {
       console.error("Error generating PDF:", error);
-      alert("Hubo un error al generar la factura. Si estás en móvil, intenta usar un navegador como Chrome o Safari.");
+      toast.error("Error al generar la factura.");
     }
   };
 

@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, doc, writeBatch } from 'firebase/firestore';
+import { collection, onSnapshot, doc, writeBatch, query, limit, where, getDocs, increment } from 'firebase/firestore';
 import { useConfig } from '../contexts/ConfigContext';
 import { useAuth } from '../contexts/AuthContext';
 import { formatUSD, formatBs } from '../lib/utils';
 import { Producto, VentaItem } from '../types';
 import { Search, Trash2, Scan } from 'lucide-react';
 import Scanner from '../components/Scanner';
+import toast from 'react-hot-toast';
 
 export default function Vender() {
   const { tasaDolar } = useConfig();
@@ -19,7 +20,9 @@ export default function Vender() {
   const [scannerAbierto, setScannerAbierto] = useState(false);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'productos'), (snap) => {
+    // Escuchar top 100 productos para optimizar costos
+    const q = query(collection(db, 'productos'), limit(100));
+    const unsub = onSnapshot(q, (snap) => {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
       setProductos(data);
     });
@@ -32,6 +35,28 @@ export default function Vender() {
     const matchRef = p.codigo_barras && p.codigo_barras.toLowerCase().includes(term);
     return matchNombre || matchRef;
   });
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (busqueda && prodFiltrados.length === 0) {
+        buscarRemoto(busqueda);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [busqueda, prodFiltrados.length]);
+
+  // Buscar remotamente si no está en el top 100
+  const buscarRemoto = async (codigo: string) => {
+    const q = query(collection(db, 'productos'), where('codigo_barras', '==', codigo));
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const p = snap.docs[0];
+      const prod = { id: p.id, ...p.data() } as Producto;
+      setProductos(prev => [prod, ...prev]);
+      return prod;
+    }
+    return null;
+  };
 
   const agregarAlCarrito = (prod: Producto) => {
     setCarrito(prev => {
@@ -65,6 +90,7 @@ export default function Vender() {
   const procesarVenta = async () => {
     if (carrito.length === 0 || procesando) return;
     setProcesando(true);
+    const loadingToast = toast.loading("Procesando venta...");
     try {
       const batch = writeBatch(db);
       
@@ -82,39 +108,41 @@ export default function Vender() {
         }))
       });
 
-      // Update Stock
+      // Update Stock Atómicamente en el servidor
       for (const item of carrito) {
-        const prod = productos.find(p => p.id === item.productoId);
-        if (prod) {
-          const pref = doc(db, 'productos', item.productoId);
-          batch.update(pref, { stock: prod.stock - item.cantidad });
-        }
+        const pref = doc(db, 'productos', item.productoId);
+        batch.update(pref, { stock: increment(-item.cantidad) });
       }
 
       await batch.commit();
       setCarrito([]);
-      alert("Venta registrada con éxito");
+      toast.success("Venta registrada con éxito", { id: loadingToast });
     } catch (err) {
       console.error(err);
-      alert("Error procesando la venta");
+      toast.error("Error procesando la venta", { id: loadingToast });
     } finally {
       setProcesando(false);
     }
   };
 
-  const handleScan = (code: string) => {
+  const handleScan = async (code: string) => {
     const term = code.toLowerCase();
-    const match = productos.find(p => p.codigo_barras?.toLowerCase() === term);
+    let match = productos.find(p => p.codigo_barras?.toLowerCase() === term);
     
+    if (!match) {
+      match = await buscarRemoto(code) || undefined;
+    }
+
     if (match) {
       if (match.stock > 0) {
         agregarAlCarrito(match);
+        toast.success(`Añadido: ${match.nombre}`);
       } else {
-        alert(`El producto "${match.nombre}" está agotado.`);
+        toast.error(`El producto "${match.nombre}" está agotado.`);
       }
     } else {
       setBusqueda(code);
-      alert("No se encontró el producto exacto. Búsqueda manual activada.");
+      toast.error("Producto no encontrado. Búsqueda manual activada.");
     }
   };
 

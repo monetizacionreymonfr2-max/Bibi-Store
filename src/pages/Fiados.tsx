@@ -7,6 +7,7 @@ import { formatUSD, formatBs, cn } from '../lib/utils';
 import { Plus, Check, Search, X, Users, CreditCard, History, ChevronDown, ChevronUp } from 'lucide-react';
 import { useConfig } from '../contexts/ConfigContext';
 import { format } from 'date-fns';
+import toast from 'react-hot-toast';
 
 export default function Fiados() {
   const { role } = useAuth();
@@ -65,9 +66,10 @@ export default function Fiados() {
       setCliente('');
       setMontoUSD('');
       setDescripcion('');
+      toast.success("Fiado registrado correctamente");
     } catch (err) {
       console.error(err);
-      alert("Error registrando fiado");
+      toast.error("Error registrando fiado");
     }
   };
 
@@ -75,10 +77,11 @@ export default function Fiados() {
     e.preventDefault();
     const monto = Number(montoAbono);
     if (monto <= 0 || monto > modalAbono.deuda) {
-      alert("Monto inválido");
+      toast.error("Monto inválido");
       return;
     }
 
+    const loadingToast = toast.loading("Procesando abono...");
     try {
       const nuevoMonto = modalAbono.deuda - monto;
       await updateDoc(doc(db, 'fiados', modalAbono.fiadoId), {
@@ -91,13 +94,15 @@ export default function Fiados() {
       });
       setModalAbono({ abierto: false, fiadoId: '', cliente: '', deuda: 0 });
       setMontoAbono('');
+      toast.success("Abono procesado con éxito", { id: loadingToast });
     } catch (err) {
-      alert("Error al procesar abono");
+      toast.error("Error al procesar abono", { id: loadingToast });
     }
   };
 
   const marcarPagado = async (fiado: Fiado) => {
     if(!confirm("¿Confirmar pago total de esta deuda?")) return;
+    const loadingToast = toast.loading("Actualizando...");
     try {
       await updateDoc(doc(db, 'fiados', fiado.id), { 
         estado: 'pagado', 
@@ -107,9 +112,10 @@ export default function Fiados() {
           fecha: Date.now()
         })
       });
+      toast.success("Deuda saldada", { id: loadingToast });
     } catch (err) {
       console.error(err);
-      alert("Error al actualizar la deuda");
+      toast.error("Error al actualizar la deuda", { id: loadingToast });
     }
   };
 

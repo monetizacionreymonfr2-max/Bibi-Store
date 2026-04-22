@@ -83,22 +83,23 @@ export default function Scanner({ onScan, onClose, title = "Escanear Código" }:
       const base64Image = canvas.toDataURL('image/jpeg').split(',')[1];
 
       // Use Gemini to read barcode OR numbers
-      const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY!);
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
+      const imagePart = {
+        inlineData: {
+          data: base64Image,
+          mimeType: "image/jpeg"
+        }
+      };
+      
       const prompt = "Identify the product barcode number or the reference code number written on the product in this image. Only output the number itself, nothing else. If there are multiple numbers, find the one that looks like a serial or product code. If no number is found, reply with 'NOT_FOUND'.";
       
-      const result = await model.generateContent([
-        prompt,
-        {
-          inlineData: {
-            data: base64Image,
-            mimeType: "image/jpeg"
-          }
-        }
-      ]);
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: { parts: [imagePart, { text: prompt }] },
+      });
 
-      const text = result.response.text().trim();
+      const text = response.text?.trim() || 'NOT_FOUND';
       if (text === 'NOT_FOUND') {
         setError("No se detectó ningún código. Intenta de nuevo.");
       } else {

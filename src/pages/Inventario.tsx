@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../lib/firebase';
-import { collection, onSnapshot, doc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { db, storage } from '../lib/firebase';
+import { collection, onSnapshot, doc, deleteDoc, writeBatch, query, limit, where, getDocs } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfig } from '../contexts/ConfigContext';
 import { Producto } from '../types';
 import { formatUSD, formatBs, cn } from '../lib/utils';
 import { Plus, Edit2, Trash2, Search, X, Scan } from 'lucide-react';
 import Scanner from '../components/Scanner';
+import toast from 'react-hot-toast';
 
 export default function Inventario() {
   const { role } = useAuth();
@@ -26,6 +28,7 @@ export default function Inventario() {
   const [stock, setStock] = useState('');
   const [codigo, setCodigo] = useState('');
   const [imagenUrl, setImagenUrl] = useState('');
+  const [imagenArchivo, setImagenArchivo] = useState<File | null>(null);
 
   const isAdmin = role === 'admin' || role === 'superadmin';
 
@@ -64,39 +67,21 @@ export default function Inventario() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Use for preview
     const reader = new FileReader();
     reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
-        
-        const MAX_DIM = 600;
-        if (width > height && width > MAX_DIM) {
-          height *= MAX_DIM / width;
-          width = MAX_DIM;
-        } else if (height > MAX_DIM) {
-          width *= MAX_DIM / height;
-          height = MAX_DIM;
-        }
-        
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
-        
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
-        setImagenUrl(dataUrl);
-      };
-      img.src = event.target?.result as string;
+      setImagenUrl(event.target?.result as string);
     };
     reader.readAsDataURL(file);
+    
+    // Store for upload
+    setImagenArchivo(file);
   };
 
   useEffect(() => {
-    // Escuchar productos
-    const unsubProd = onSnapshot(collection(db, 'productos'), (snap) => {
+    // Escuchar productos con limite para optimizar cuota
+    const q = query(collection(db, 'productos'), limit(100));
+    const unsubProd = onSnapshot(q, (snap) => {
       const prodData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
       
       if (isAdmin) {
@@ -122,7 +107,35 @@ export default function Inventario() {
     return matchNombre || matchRef;
   });
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (busqueda && prodFiltrados.length === 0) {
+        buscarRemoto();
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [busqueda, prodFiltrados.length]);
+
+  // Búsqueda profunda para códigos de barras no cargados en los primeros 100
+  const buscarRemoto = async () => {
+    if (!busqueda) return;
+    const term = busqueda.toLowerCase();
+    const matchLocal = productos.some(p => p.codigo_barras?.toLowerCase() === term);
+    
+    if (!matchLocal) {
+      const q = query(collection(db, 'productos'), where('codigo_barras', '==', busqueda));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const p = snap.docs[0];
+        const prod = { id: p.id, ...p.data() } as Producto;
+        setProductos(prev => [prod, ...prev]);
+        toast.success("Producto encontrado");
+      }
+    }
+  };
+
   const abrirModal = (prod?: Producto & { costo_usd?: number }) => {
+    setImagenArchivo(null);
     if (prod) {
       setEditandoId(prod.id);
       setNombre(prod.nombre);
@@ -152,22 +165,28 @@ export default function Inventario() {
 
   const guardarProducto = async (e: React.FormEvent) => {
     e.preventDefault();
+    const loadingToast = toast.loading("Guardando producto...");
     try {
+      let finalImagenUrl = imagenUrl;
+
+      // Subir a Firebase Storage si hay un archivo nuevo
+      if (imagenArchivo) {
+        const storageRef = ref(storage, `productos/${Date.now()}_${imagenArchivo.name}`);
+        const snapshot = await uploadBytes(storageRef, imagenArchivo);
+        finalImagenUrl = await getDownloadURL(snapshot.ref);
+      }
+
       const payloadObj: any = {
         nombre,
         precio_usd: Number(precio),
         stock: Number(stock),
-        codigo_barras: codigo || "N/A"
+        codigo_barras: codigo || "N/A",
+        imagen_url: finalImagenUrl
       };
       
-      if (imagenUrl) {
-        payloadObj.imagen_url = imagenUrl;
-      }
-
       const batch = writeBatch(db);
 
       if (editandoId) {
-        // Update
         const prodRef = doc(db, 'productos', editandoId);
         batch.update(prodRef, payloadObj);
         
@@ -176,7 +195,6 @@ export default function Inventario() {
           batch.set(costoRef, { costo_usd: Number(costo) }, { merge: true });
         }
       } else {
-        // Create
         const newProdRef = doc(collection(db, 'productos'));
         batch.set(newProdRef, payloadObj);
         
@@ -188,9 +206,10 @@ export default function Inventario() {
       
       await batch.commit();
       setModalAbierto(false);
+      toast.success("Producto guardado correctamente", { id: loadingToast });
     } catch (err) {
       console.error(err);
-      alert("Error al guardar producto.");
+      toast.error("Error al guardar producto", { id: loadingToast });
     }
   };
 
@@ -201,8 +220,9 @@ export default function Inventario() {
         await deleteDoc(doc(db, 'costos_productos', id));
       }
       await deleteDoc(doc(db, 'productos', id));
+      toast.success("Producto eliminado");
     } catch (err) {
-      alert("Error al eliminar.");
+      toast.error("Error al eliminar");
     }
   };
 
