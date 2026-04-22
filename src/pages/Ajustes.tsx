@@ -55,17 +55,46 @@ export default function Ajustes() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (!navigator.onLine) {
+      toast.error("No hay conexión a internet para subir el logo.");
+      return;
+    }
+
     setSubiendoLogo(true);
-    const loadingToast = toast.loading("Subiendo logo...");
+    const loadingToast = toast.loading("Subiendo logo... (esto puede tardar)");
+    
+    // Safety timeout for upload
+    const uploadTimeout = setTimeout(() => {
+      setSubiendoLogo(false);
+      toast.error("La subida tardó demasiado. Verifique su conexión.", { id: loadingToast });
+    }, 20000);
+
     try {
-      const storageRef = ref(storage, `config/logo_${Date.now()}`);
-      const snapshot = await uploadBytes(storageRef, file);
+      console.log("Iniciando subida de logo:", file.name, file.size);
+      // Path simplificado y uso de metadata para evitar problemas
+      const storageRef = ref(storage, `config/business_logo_${Date.now()}`);
+      
+      const snapshot = await uploadBytes(storageRef, file, {
+        contentType: file.type
+      });
+      
+      console.log("Snapshot de subida obtenido, obteniendo URL...");
       const url = await getDownloadURL(snapshot.ref);
+      
+      console.log("URL de logo generada:", url);
       setNuevoLogoUrl(url);
-      toast.success("Logo cargado temporalmente. Guarde los cambios para aplicar.", { id: loadingToast });
+      clearTimeout(uploadTimeout);
+      toast.success("Logo cargado. Presione 'Actualizar' para guardar cambios.", { id: loadingToast });
     } catch (err) {
-      console.error(err);
-      toast.error("Error al subir logo", { id: loadingToast });
+      clearTimeout(uploadTimeout);
+      console.error("Error detallado en subida de logo:", err);
+      const errorMsg = err instanceof Error ? err.message : "Error desconocido";
+      
+      if (errorMsg.includes("storage/unauthorized")) {
+        toast.error("Error: Sin permisos para subir a Storage. Configure las reglas.", { id: loadingToast, duration: 6000 });
+      } else {
+        toast.error("Error al subir logo: " + errorMsg, { id: loadingToast });
+      }
     } finally {
       setSubiendoLogo(false);
     }
