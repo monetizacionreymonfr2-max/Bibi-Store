@@ -36,7 +36,7 @@ export default function Layout() {
               }}
             />
             <Store className="text-yellow-400 fallback-icon hidden sm:block" size={24} />
-            BIBI STORE <span className="text-yellow-400">POS</span>
+            BIBI STORE
           </h1>
           <p className="text-xs text-gray-400 tracking-wide mt-0.5">Control de Inventario & Ventas</p>
         </div>

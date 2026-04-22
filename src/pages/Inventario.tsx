@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, addDoc, doc, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { Producto, CostoProducto } from '../types';
 import { formatUSD, cn } from '../lib/utils';
@@ -123,19 +123,29 @@ export default function Inventario() {
         payloadObj.imagen_url = imagenUrl;
       }
 
+      const batch = writeBatch(db);
+
       if (editandoId) {
         // Update
-        await updateDoc(doc(db, 'productos', editandoId), payloadObj);
+        const prodRef = doc(db, 'productos', editandoId);
+        batch.update(prodRef, payloadObj);
+        
         if (role === 'admin') {
-          await setDoc(doc(db, 'costos_productos', editandoId), { costo_usd: Number(costo) });
+          const costoRef = doc(db, 'costos_productos', editandoId);
+          batch.set(costoRef, { costo_usd: Number(costo) }, { merge: true }); // using merge in case it was deleted
         }
       } else {
-        // Create
-        const docRef = await addDoc(collection(db, 'productos'), payloadObj);
+        // Create - Generate ID first locally
+        const newProdRef = doc(collection(db, 'productos'));
+        batch.set(newProdRef, payloadObj);
+        
         if (role === 'admin') {
-          await setDoc(doc(db, 'costos_productos', docRef.id), { costo_usd: Number(costo) });
+          const newCostoRef = doc(db, 'costos_productos', newProdRef.id);
+          batch.set(newCostoRef, { costo_usd: Number(costo) });
         }
       }
+      
+      await batch.commit();
       setModalAbierto(false);
     } catch (err) {
       console.error(err);

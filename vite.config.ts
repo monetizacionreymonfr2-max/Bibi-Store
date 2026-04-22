@@ -13,13 +13,24 @@ export default defineConfig(({mode}) => {
       VitePWA({
         registerType: 'autoUpdate',
         manifest: {
-          name: 'Bibi Store POS',
-          short_name: 'Bibi Store',
+          name: 'BIBI STORE',
+          short_name: 'BIBI STORE',
           description: 'Punto de venta y control de inventario para Bibi Store',
           theme_color: '#ffffff',
           background_color: '#ffffff',
           display: 'standalone',
-          icons: []
+          icons: [
+            {
+              src: '/logo-192.png',
+              sizes: '192x192',
+              type: 'image/png'
+            },
+            {
+              src: '/logo-512.png',
+              sizes: '512x512',
+              type: 'image/png'
+            }
+          ]
         }
       })
     ],

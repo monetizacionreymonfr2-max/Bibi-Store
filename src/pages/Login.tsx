@@ -80,7 +80,7 @@ export default function Login() {
           <Store className="fallback-icon hidden text-black" size={80} />
         </div>
         <h2 className="text-center text-4xl font-black tracking-tighter text-black uppercase">
-          BIBI STORE <span className="text-yellow-400">POS</span>
+          BIBI STORE
         </h2>
         <p className="mt-2 text-center text-xs font-mono text-gray-500 uppercase tracking-widest">
           Sistema de Inventario & Ventas
