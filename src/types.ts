@@ -5,6 +5,7 @@ export interface Producto {
   stock: number;
   codigo_barras: string;
   imagen_url?: string;
+  unidad_medida?: 'unid' | 'kg';
 }
 
 export interface CostoProducto {
@@ -17,6 +18,7 @@ export interface VentaItem {
   cantidad: number;
   precio_unitario_usd: number;
   subtotal_usd: number;
+  unidad_medida?: 'unid' | 'kg';
 }
 
 export interface Venta {

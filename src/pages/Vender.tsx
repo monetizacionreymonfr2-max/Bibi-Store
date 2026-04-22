@@ -5,7 +5,7 @@ import { useConfig } from '../contexts/ConfigContext';
 import { useAuth } from '../contexts/AuthContext';
 import { formatUSD, formatBs } from '../lib/utils';
 import { Producto, VentaItem } from '../types';
-import { Search, Trash2, Scan } from 'lucide-react';
+import { Search, Trash2, Scan, X } from 'lucide-react';
 import Scanner from '../components/Scanner';
 import toast from 'react-hot-toast';
 
@@ -18,6 +18,12 @@ export default function Vender() {
   const [carrito, setCarrito] = useState<VentaItem[]>([]);
   const [procesando, setProcesando] = useState(false);
   const [scannerAbierto, setScannerAbierto] = useState(false);
+  
+  // Weight Modal State
+  const [modalPesoOpen, setModalPesoOpen] = useState(false);
+  const [pesoProducto, setPesoProducto] = useState<Producto | null>(null);
+  const [gramos, setGramos] = useState('');
+  const [kilos, setKilos] = useState('');
 
   useEffect(() => {
     // Escuchar top 100 productos para optimizar costos
@@ -58,15 +64,37 @@ export default function Vender() {
     return null;
   };
 
-  const agregarAlCarrito = (prod: Producto) => {
+  const agregarAlCarrito = (prod: Producto, weight?: number) => {
+    if (prod.unidad_medida === 'kg' && !weight) {
+      setPesoProducto(prod);
+      setGramos('');
+      setKilos('');
+      setModalPesoOpen(true);
+      return;
+    }
+
+    const cantidadAAgregar = weight || 1;
+
     setCarrito(prev => {
       const ex = prev.find(i => i.productoId === prod.id);
       if (ex) {
-        if (ex.cantidad >= prod.stock) return prev; // check stock
-        return prev.map(i => i.productoId === prod.id ? { ...i, cantidad: i.cantidad + 1, subtotal_usd: (i.cantidad + 1) * i.precio_unitario_usd } : i);
+        const nuevaCantidad = ex.cantidad + cantidadAAgregar;
+        if (nuevaCantidad > prod.stock) {
+          toast.error("No hay suficiente stock");
+          return prev;
+        }
+        return prev.map(i => i.productoId === prod.id ? { ...i, cantidad: nuevaCantidad, subtotal_usd: nuevaCantidad * i.precio_unitario_usd } : i);
       }
-      return [...prev, { productoId: prod.id, nombre: prod.nombre, cantidad: 1, precio_unitario_usd: prod.precio_usd, subtotal_usd: prod.precio_usd }];
+      return [...prev, { 
+        productoId: prod.id, 
+        nombre: prod.nombre, 
+        cantidad: cantidadAAgregar, 
+        precio_unitario_usd: prod.precio_usd, 
+        subtotal_usd: cantidadAAgregar * prod.precio_usd,
+        unidad_medida: prod.unidad_medida 
+      }];
     });
+    setModalPesoOpen(false);
   };
 
   const modificarCantidad = (prodId: string, delta: number) => {
@@ -119,7 +147,13 @@ export default function Vender() {
       toast.success("Venta registrada con éxito", { id: loadingToast });
     } catch (err) {
       console.error(err);
-      toast.error("Error procesando la venta", { id: loadingToast });
+      const errorMsg = err instanceof Error ? err.message : "Error desconocido";
+      if (errorMsg.includes("offline") || !navigator.onLine) {
+        setCarrito([]);
+        toast.success("Venta guardada (Local)", { id: loadingToast });
+      } else {
+        toast.error("Error al vender: " + errorMsg, { id: loadingToast });
+      }
     } finally {
       setProcesando(false);
     }
@@ -203,7 +237,10 @@ export default function Vender() {
               
               <div className="flex justify-between items-end">
                 <div className="flex flex-col">
-                  <span className="text-2xl font-extrabold">{formatUSD(prod.precio_usd)}</span>
+                  <span className="text-2xl font-extrabold">
+                    {formatUSD(prod.precio_usd)}
+                    <span className="text-[10px] ml-1 font-normal text-gray-400 uppercase">{prod.unidad_medida === 'kg' ? '/ Kg' : ''}</span>
+                  </span>
                   <span className="text-[10px] font-mono text-gray-400">{formatBs(prod.precio_usd * tasaDolar).replace('Bs. ', '')} VED</span>
                 </div>
                 
@@ -252,10 +289,16 @@ export default function Vender() {
               carrito.map((item, idx) => (
                 <div key={item.productoId} className={`flex justify-between text-sm items-center ${idx > 0 && 'border-t border-gray-200 pt-3'}`}>
                   <div className="flex flex-col flex-1 pr-2">
-                    <strong className="leading-tight truncate">{item.cantidad}x {item.nombre}</strong>
+                    <strong className="leading-tight truncate">
+                      {item.unidad_medida === 'kg' ? `${item.cantidad.toFixed(3)} Kg` : `${item.cantidad}x`} {item.nombre}
+                    </strong>
                     <div className="flex space-x-2 mt-1 items-center">
-                      <button onClick={() => modificarCantidad(item.productoId, -1)} className="text-[10px] font-black uppercase text-gray-400 hover:text-black border border-gray-200 px-1.5">-</button>
-                      <button onClick={() => modificarCantidad(item.productoId, 1)} className="text-[10px] font-black uppercase text-gray-400 hover:text-black border border-gray-200 px-1.5">+</button>
+                      {item.unidad_medida !== 'kg' && (
+                        <>
+                          <button onClick={() => modificarCantidad(item.productoId, -1)} className="text-[10px] font-black uppercase text-gray-400 hover:text-black border border-gray-200 px-1.5">-</button>
+                          <button onClick={() => modificarCantidad(item.productoId, 1)} className="text-[10px] font-black uppercase text-gray-400 hover:text-black border border-gray-200 px-1.5">+</button>
+                        </>
+                      )}
                       <button onClick={() => quitarDelCarrito(item.productoId)} className="text-red-400 hover:text-red-600 ml-1" title="Quitar">
                         <Trash2 size={12} />
                       </button>
@@ -301,6 +344,85 @@ export default function Vender() {
           </div>
         </div>
       </aside>
+
+      {/* Weight Modal */}
+      {modalPesoOpen && pesoProducto && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white border-4 border-black w-full max-w-sm shadow-[8px_8px_0px_rgba(0,0,0,1)] animate-in zoom-in-95 duration-200 overflow-hidden">
+            <div className="p-4 bg-yellow-400 border-b-4 border-black flex justify-between items-center">
+              <h3 className="font-black uppercase text-sm">{pesoProducto.nombre} (Deli)</h3>
+              <button onClick={() => setModalPesoOpen(false)}><X size={20} /></button>
+            </div>
+            <div className="p-6 space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-black uppercase mb-1">Kilos</label>
+                  <input 
+                    type="number" 
+                    placeholder="0" 
+                    value={kilos} 
+                    onChange={e => {
+                      setKilos(e.target.value);
+                      const k = parseFloat(e.target.value) || 0;
+                      const g = parseFloat(gramos) || 0;
+                      if (k + g/1000 > pesoProducto.stock) {
+                        toast.error("Excede el stock disponible");
+                      }
+                    }} 
+                    className="w-full border-2 border-black p-4 font-mono text-xl" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black uppercase mb-1">Gramos</label>
+                  <input 
+                    type="number" 
+                    placeholder="0" 
+                    value={gramos} 
+                    onChange={e => {
+                      setGramos(e.target.value);
+                      const k = parseFloat(kilos) || 0;
+                      const g = parseFloat(e.target.value) || 0;
+                      if (k + g/1000 > pesoProducto.stock) {
+                        toast.error("Excede el stock disponible");
+                      }
+                    }} 
+                    className="w-full border-2 border-black p-4 font-mono text-xl" 
+                  />
+                </div>
+              </div>
+
+              <div className="bg-gray-50 border-2 border-dashed border-gray-300 p-4 space-y-2">
+                <div className="flex justify-between text-xs font-mono">
+                  <span>Precio / Kg:</span>
+                  <span className="font-bold">{formatUSD(pesoProducto.precio_usd)}</span>
+                </div>
+                <div className="flex justify-between text-lg font-black border-t border-gray-200 pt-2">
+                  <span>SUBTOTAL:</span>
+                  <span>{formatUSD(((parseFloat(kilos)||0) + (parseFloat(gramos)||0)/1000) * pesoProducto.precio_usd)}</span>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => {
+                  const totalKg = (parseFloat(kilos) || 0) + (parseFloat(gramos) || 0) / 1000;
+                  if (totalKg <= 0) {
+                    toast.error("Ingresa un peso válido");
+                    return;
+                  }
+                  if (totalKg > pesoProducto.stock) {
+                    toast.error("No hay suficiente en inventario");
+                    return;
+                  }
+                  agregarAlCarrito(pesoProducto, totalKg);
+                }}
+                className="w-full bg-black text-white py-4 font-black uppercase tracking-widest hover:bg-yellow-400 hover:text-black transition-all border-2 border-black"
+              >
+                Añadir al Carrito
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

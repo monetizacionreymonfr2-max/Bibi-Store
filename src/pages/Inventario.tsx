@@ -26,6 +26,7 @@ export default function Inventario() {
   const [costo, setCosto] = useState('');
   const [margen, setMargen] = useState('');
   const [stock, setStock] = useState('');
+  const [unidadMedida, setUnidadMedida] = useState<'unid' | 'kg'>('unid');
   const [codigo, setCodigo] = useState('');
   const [imagenUrl, setImagenUrl] = useState('');
   const [imagenArchivo, setImagenArchivo] = useState<File | null>(null);
@@ -142,6 +143,7 @@ export default function Inventario() {
       setPrecio(prod.precio_usd.toString());
       setCosto(prod.costo_usd?.toString() || '');
       setStock(prod.stock.toString());
+      setUnidadMedida(prod.unidad_medida || 'unid');
       setCodigo(prod.codigo_barras);
       setImagenUrl(prod.imagen_url || '');
 
@@ -156,6 +158,7 @@ export default function Inventario() {
       setPrecio('');
       setCosto('');
       setStock('');
+      setUnidadMedida('unid');
       setCodigo('');
       setImagenUrl('');
       setMargen('');
@@ -171,15 +174,25 @@ export default function Inventario() {
 
       // Subir a Firebase Storage si hay un archivo nuevo
       if (imagenArchivo) {
-        const storageRef = ref(storage, `productos/${Date.now()}_${imagenArchivo.name}`);
-        const snapshot = await uploadBytes(storageRef, imagenArchivo);
-        finalImagenUrl = await getDownloadURL(snapshot.ref);
+        if (!navigator.onLine) {
+          toast.error("Sin internet: La foto NO se guardará.", { id: loadingToast, duration: 3000 });
+        } else {
+          try {
+            const storageRef = ref(storage, `productos/${Date.now()}_${imagenArchivo.name}`);
+            const snapshot = await uploadBytes(storageRef, imagenArchivo);
+            finalImagenUrl = await getDownloadURL(snapshot.ref);
+          } catch (storageError) {
+            console.error("Storage upload failed:", storageError);
+            toast.error("Error al subir imagen, guardando datos...", { id: loadingToast, duration: 2000 });
+          }
+        }
       }
 
       const payloadObj: any = {
         nombre,
-        precio_usd: Number(precio),
-        stock: Number(stock),
+        precio_usd: Number(precio) || 0,
+        stock: Number(stock) || 0,
+        unidad_medida: unidadMedida,
         codigo_barras: codigo || "N/A",
         imagen_url: finalImagenUrl
       };
@@ -192,7 +205,7 @@ export default function Inventario() {
         
         if (isAdmin) {
           const costoRef = doc(db, 'costos_productos', editandoId);
-          batch.set(costoRef, { costo_usd: Number(costo) }, { merge: true });
+          batch.set(costoRef, { costo_usd: Number(costo) || 0 }, { merge: true });
         }
       } else {
         const newProdRef = doc(collection(db, 'productos'));
@@ -200,7 +213,7 @@ export default function Inventario() {
         
         if (isAdmin) {
           const newCostoRef = doc(db, 'costos_productos', newProdRef.id);
-          batch.set(newCostoRef, { costo_usd: Number(costo) });
+          batch.set(newCostoRef, { costo_usd: Number(costo) || 0 });
         }
       }
       
@@ -209,7 +222,14 @@ export default function Inventario() {
       toast.success("Producto guardado correctamente", { id: loadingToast });
     } catch (err) {
       console.error(err);
-      toast.error("Error al guardar producto", { id: loadingToast });
+      const errorMsg = err instanceof Error ? err.message : "Error desconocido";
+      if (errorMsg.includes("offline")) {
+        // En Firestore con persistencia, el batch.commit puede tardar si está offline
+        setModalAbierto(false);
+        toast.success("Guardado local (se sincronizará al conectar)", { id: loadingToast });
+      } else {
+        toast.error("Error al guardar: " + errorMsg, { id: loadingToast });
+      }
     }
   };
 
@@ -276,7 +296,7 @@ export default function Inventario() {
                   "absolute bottom-0 right-0 px-2 py-0.5 text-[8px] font-black uppercase tracking-tighter border-l border-t border-black transition-colors",
                   prod.stock <= 5 ? "bg-red-500 text-white animate-pulse" : "bg-black text-white"
                 )}>
-                  Stock: {prod.stock}
+                  {prod.unidad_medida === 'kg' ? `Stock: ${prod.stock.toFixed(3)} Kg` : `Stock: ${prod.stock}`}
                 </div>
               </div>
 
@@ -295,7 +315,10 @@ export default function Inventario() {
                 
                 <div className="mt-auto border-t border-dashed border-gray-200 pt-3 flex flex-col space-y-1">
                   <div className="flex justify-between items-end">
-                    <span className="text-lg md:text-xl font-black text-black">{formatUSD(prod.precio_usd)}</span>
+                    <span className="text-lg md:text-xl font-black text-black">
+                      {formatUSD(prod.precio_usd)}
+                      <span className="text-[10px] ml-1 font-normal text-gray-500 uppercase">{prod.unidad_medida === 'kg' ? '/ Kg' : '/ Und'}</span>
+                    </span>
                     {isAdmin && prod.costo_usd && (
                       <span className="text-[8px] font-black text-orange-400 uppercase tracking-tighter">C: {formatUSD(prod.costo_usd)}</span>
                     )}
@@ -359,6 +382,32 @@ export default function Inventario() {
                 </div>
 
                 <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest mb-1">Tipo de Venta / Unidad</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button 
+                      type="button" 
+                      onClick={() => setUnidadMedida('unid')}
+                      className={cn(
+                        "py-3 font-black uppercase text-[10px] tracking-widest border-2 border-black transition-all",
+                        unidadMedida === 'unid' ? "bg-black text-white" : "bg-white text-black hover:bg-gray-100"
+                      )}
+                    >
+                      Por Unidades
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={() => setUnidadMedida('kg')}
+                      className={cn(
+                        "py-3 font-black uppercase text-[10px] tracking-widest border-2 border-black transition-all",
+                        unidadMedida === 'kg' ? "bg-black text-white" : "bg-white text-black hover:bg-gray-100"
+                      )}
+                    >
+                      Deli / Kg
+                    </button>
+                  </div>
+                </div>
+
+                <div>
                   <label className="block text-[10px] font-black uppercase tracking-widest mb-1">Nombre del Producto</label>
                   <input required type="text" value={nombre} onChange={e=>setNombre(e.target.value)} className="w-full border-2 border-black p-3 font-bold text-sm" />
                 </div>
@@ -380,7 +429,9 @@ export default function Inventario() {
 
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-[8px] font-black uppercase tracking-widest mb-1 text-orange-600">Costo USD</label>
+                    <label className="block text-[8px] font-black uppercase tracking-widest mb-1 text-orange-600">
+                      {unidadMedida === 'kg' ? 'Costo por Kg' : 'Costo Unitario'} (USD)
+                    </label>
                     <input required type="number" step="0.01" min="0" value={costo} onChange={e=>handleCostoChange(e.target.value)} className="w-full border-2 border-orange-500 p-3 font-mono font-bold bg-orange-50 text-sm" />
                   </div>
                   <div>
@@ -388,14 +439,18 @@ export default function Inventario() {
                     <input type="number" step="0.01" value={margen} onChange={e=>handleMargenChange(e.target.value)} className="w-full border-2 border-blue-500 p-3 font-mono font-bold bg-blue-50 text-sm" placeholder="GAN" />
                   </div>
                   <div className="col-span-2 md:col-span-1">
-                    <label className="block text-[8px] font-black uppercase tracking-widest mb-1 text-green-600">Venta USD</label>
+                    <label className="block text-[8px] font-black uppercase tracking-widest mb-1 text-green-600">
+                      {unidadMedida === 'kg' ? 'Precio por Kg' : 'Precio Unitario'} (USD)
+                    </label>
                     <input required type="number" step="0.01" min="0" value={precio} onChange={e=>handlePrecioChange(e.target.value)} className="w-full border-2 border-green-500 p-3 font-mono font-bold bg-green-50 text-sm" />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-black uppercase tracking-widest mb-1">Stock Inicial</label>
-                  <input required type="number" min="0" value={stock} onChange={e=>setStock(e.target.value)} className="w-full border-2 border-black p-3 font-mono font-bold text-sm" />
+                  <label className="block text-[10px] font-black uppercase tracking-widest mb-1">
+                    {unidadMedida === 'kg' ? 'Stock actual (Kilos)' : 'Stock actual (Unid)'}
+                  </label>
+                  <input required type="number" step={unidadMedida === 'kg' ? "0.001" : "1"} min="0" value={stock} onChange={e=>setStock(e.target.value)} className="w-full border-2 border-black p-3 font-mono font-bold text-sm" />
                 </div>
               </div>
 
