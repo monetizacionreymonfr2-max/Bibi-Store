@@ -22,6 +22,9 @@ export default function Ajustes() {
     }
     if (logoUrl) {
       setNuevoLogoUrl(logoUrl);
+    } else {
+      // Pre-fill with the link the user provided
+      setNuevoLogoUrl("https://files.fm/u/nx6fjyav4y");
     }
   }, [tasaDolar, logoUrl]);
 

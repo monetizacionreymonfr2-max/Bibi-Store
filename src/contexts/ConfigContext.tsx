@@ -20,7 +20,11 @@ export const ConfigProvider: React.FC<{children: React.ReactNode}> = ({ children
       if (docSnap.exists()) {
         const data = docSnap.data();
         setTasaDolar(data.tasa_dolar || 0);
-        setLogoUrl(data.logo_url || null);
+        // Prioritize what's in DB, but fallback to the user's provided link if empty
+        setLogoUrl(data.logo_url || "https://files.fm/u/nx6fjyav4y"); 
+      } else {
+        // If config doesn't exist yet, at least show the logo
+        setLogoUrl("https://files.fm/u/nx6fjyav4y");
       }
     }, (err) => {
       console.error("Error reading configuracion", err);
