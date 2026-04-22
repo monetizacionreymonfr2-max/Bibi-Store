@@ -51,9 +51,9 @@ service cloud.firestore {
 
     function isValidConfiguracion(data) {
       return data.keys().hasAll(['tasa_dolar']) 
-             && data.keys().size() == 1
              && data.tasa_dolar is number
-             && data.tasa_dolar >= 0;
+             && data.tasa_dolar >= 0
+             && (!data.keys().hasAny(['logo_url']) || (data.logo_url is string && data.logo_url.size() <= 2000));
     }
 
     function isValidRolUsuario(data) {
@@ -137,10 +137,10 @@ service cloud.firestore {
     }
 
     match /configuracion/general {
-      allow read: if isAdminOrCajero();
+      allow read: if true; // Public read for logo and tasa
       allow create: if isAdminOrCajero() && isValidConfiguracion(incoming());
       allow update: if isAdminOrCajero() && isValidConfiguracion(incoming())
-                    && incoming().diff(existing()).affectedKeys().hasOnly(['tasa_dolar']);
+                    && incoming().diff(existing()).affectedKeys().hasAny(['tasa_dolar', 'logo_url']);
     }
 
     match /usuarios/{userId} {

@@ -8,9 +8,14 @@ import React, { useEffect, useState } from "react";
 
 export default function Layout() {
   const { role, user } = useAuth();
-  const { tasaDolar } = useConfig();
+  const { tasaDolar, logoUrl } = useConfig();
   const location = useLocation();
   const [offline, setOffline] = useState(!navigator.onLine);
+  const [imageError, setImageError] = useState(false);
+
+  useEffect(() => {
+    setImageError(false);
+  }, [logoUrl]);
 
   useEffect(() => {
     const handleOnline = () => setOffline(false);
@@ -38,17 +43,16 @@ export default function Layout() {
       <header className="bg-black text-white p-4 flex justify-between items-center shadow-lg shrink-0">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tighter flex items-center gap-3">
-            <img 
-              src="/logo.jpg" 
-              alt="Bibi Store Logo" 
-              className="h-10 w-auto object-contain hidden sm:block bg-white rounded-md p-0.5 border border-white"
-              onError={(e) => {
-                // Fallback icon if image is not yet uploaded
-                (e.target as HTMLImageElement).style.display = 'none';
-                e.currentTarget.parentElement?.querySelector('.fallback-icon')?.classList.remove('hidden');
-              }}
-            />
-            <Store className="text-yellow-400 fallback-icon hidden sm:block" size={24} />
+            {!imageError ? (
+              <img 
+                src={logoUrl || "/logo.jpg"} 
+                alt="Bibi Store Logo" 
+                className="h-10 w-auto min-w-[40px] object-contain hidden sm:block bg-white rounded-md p-0.5 border border-white"
+                onError={() => setImageError(true)}
+              />
+            ) : (
+              <Store className="text-yellow-400 hidden sm:block" size={24} />
+            )}
             BIBI STORE
           </h1>
           <p className="text-xs text-gray-400 tracking-wide mt-0.5">Control de Inventario & Ventas</p>

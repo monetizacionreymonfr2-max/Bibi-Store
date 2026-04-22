@@ -5,31 +5,32 @@ import { useAuth } from './AuthContext';
 
 interface ConfigContextType {
   tasaDolar: number;
+  logoUrl: string | null;
 }
 
-const ConfigContext = createContext<ConfigContextType>({ tasaDolar: 0 });
+const ConfigContext = createContext<ConfigContextType>({ tasaDolar: 0, logoUrl: null });
 
 export const ConfigProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
   const [tasaDolar, setTasaDolar] = useState<number>(0);
-  const { user } = useAuth();
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user) return;
-
     const docRef = doc(db, 'configuracion', 'general');
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
-        setTasaDolar(docSnap.data().tasa_dolar || 0);
+        const data = docSnap.data();
+        setTasaDolar(data.tasa_dolar || 0);
+        setLogoUrl(data.logo_url || null);
       }
     }, (err) => {
       console.error("Error reading configuracion", err);
     });
 
     return () => unsubscribe();
-  }, [user]);
+  }, []);
 
   return (
-    <ConfigContext.Provider value={{ tasaDolar }}>
+    <ConfigContext.Provider value={{ tasaDolar, logoUrl }}>
       {children}
     </ConfigContext.Provider>
   );

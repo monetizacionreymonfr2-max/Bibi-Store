@@ -1,47 +1,73 @@
-import React, { useState, useEffect } from 'react';
-import { db } from '../lib/firebase';
+import React, { useState, useEffect, useRef } from 'react';
+import { db, storage } from '../lib/firebase';
 import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useConfig } from '../contexts/ConfigContext';
-import { Settings, Save } from 'lucide-react';
+import { Settings, Save, Upload, Image as ImageIcon } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
 export default function Ajustes() {
-  const { tasaDolar } = useConfig();
+  const { tasaDolar, logoUrl } = useConfig();
   const { role } = useAuth();
   const [nuevaTasa, setNuevaTasa] = useState('');
+  const [nuevoLogoUrl, setNuevoLogoUrl] = useState('');
   const [guardando, setGuardando] = useState(false);
+  const [subiendoLogo, setSubiendoLogo] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (tasaDolar) {
       setNuevaTasa(tasaDolar.toString());
     }
-  }, [tasaDolar]);
+    if (logoUrl) {
+      setNuevoLogoUrl(logoUrl);
+    }
+  }, [tasaDolar, logoUrl]);
 
   const guardarTasa = async (e: React.FormEvent) => {
     e.preventDefault();
     setGuardando(true);
-    const loadingToast = toast.loading("Actualizando tasa...");
+    const loadingToast = toast.loading("Actualizando ajustes...");
     try {
       const ref = doc(db, 'configuracion', 'general');
       const docSnap = await getDoc(ref);
+      const data = { 
+        tasa_dolar: Number(nuevaTasa),
+        logo_url: nuevoLogoUrl
+      };
+
       if (docSnap.exists()) {
-        await updateDoc(ref, { tasa_dolar: Number(nuevaTasa) });
+        await updateDoc(ref, data);
       } else {
-        // En caso de que no exista aún
-        if (role === 'admin' || role === 'superadmin' || role === 'cajero') {
-          await setDoc(ref, { tasa_dolar: Number(nuevaTasa) });
-        } else {
-          toast.error("El documento no existe y no tienes permisos.", { id: loadingToast });
-          return;
-        }
+        await setDoc(ref, data);
       }
-      toast.success("Tasa actualizada correctamente", { id: loadingToast });
+      toast.success("Ajustes actualizados", { id: loadingToast });
     } catch (err) {
       console.error(err);
-      toast.error("Error al actualizar la tasa", { id: loadingToast });
+      toast.error("Error al actualizar ajustes", { id: loadingToast });
     } finally {
       setGuardando(false);
+    }
+  };
+
+  const manejarSubidaLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setSubiendoLogo(true);
+    const loadingToast = toast.loading("Subiendo logo...");
+    try {
+      const storageRef = ref(storage, `config/logo_${Date.now()}`);
+      const snapshot = await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(snapshot.ref);
+      setNuevoLogoUrl(url);
+      toast.success("Logo cargado temporalmente. Guarde los cambios para aplicar.", { id: loadingToast });
+    } catch (err) {
+      console.error(err);
+      toast.error("Error al subir logo", { id: loadingToast });
+    } finally {
+      setSubiendoLogo(false);
     }
   };
 
@@ -57,6 +83,59 @@ export default function Ajustes() {
 
       <div className="p-6 space-y-8 flex-1 overflow-y-auto">
         <form onSubmit={guardarTasa} className="space-y-6">
+          <section className="bg-white border-4 border-black p-6 shadow-[8px_8px_0px_rgba(0,0,0,1)] relative">
+            <h2 className="text-xl font-extrabold text-black mb-4 uppercase tracking-tight">Identidad Visual</h2>
+            
+            <div className="flex flex-col md:flex-row gap-6 items-center md:items-start text-center md:text-left">
+              <div className="w-32 h-32 border-4 border-black bg-gray-50 flex items-center justify-center overflow-hidden shrink-0 relative group">
+                {nuevoLogoUrl ? (
+                  <img src={nuevoLogoUrl} alt="Logo Preview" className="w-full h-full object-contain" />
+                ) : (
+                  <ImageIcon size={48} className="text-gray-300" />
+                )}
+                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-2">
+                  <span className="text-[10px] font-bold text-white uppercase text-center">Cambiar Imagen</span>
+                </div>
+              </div>
+              
+              <div className="flex-1 space-y-4">
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-widest text-black">Logo del Negocio</h3>
+                  <p className="text-[10px] font-mono text-gray-500 uppercase tracking-widest mt-1">
+                    Esta imagen se mostrará en el ticket, pantalla de inicio y reportes.
+                  </p>
+                </div>
+                
+                <div className="flex flex-wrap gap-2 justify-center md:justify-start">
+                  <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    className="hidden" 
+                    accept="image/*"
+                    onChange={manejarSubidaLogo}
+                  />
+                  <button 
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={subiendoLogo}
+                    className="bg-white border-2 border-black px-4 py-2 text-xs font-black uppercase flex items-center gap-2 hover:bg-gray-100 transition-colors disabled:opacity-50"
+                  >
+                    <Upload size={14} /> {subiendoLogo ? 'Subiendo...' : 'Subir Logo'}
+                  </button>
+                  {nuevoLogoUrl && (
+                    <button 
+                      type="button" 
+                      onClick={() => setNuevoLogoUrl('')}
+                      className="text-red-600 text-xs font-bold uppercase hover:underline"
+                    >
+                      Remover
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+
           <section className="bg-white border-4 border-black p-6 shadow-[8px_8px_0px_rgba(0,0,0,1)] relative">
             <label className="block text-xl font-extrabold text-black mb-2 uppercase tracking-tight">Tasa de Cambio (VED)</label>
             <p className="text-xs font-mono text-gray-500 mb-6 uppercase tracking-widest">Esta tasa se usará en toda la aplicación para calcular los precios en Bolívares.</p>
