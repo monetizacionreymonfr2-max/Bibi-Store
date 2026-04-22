@@ -137,10 +137,8 @@ service cloud.firestore {
     }
 
     match /configuracion/general {
-      allow read: if true; // Public read for logo and tasa
-      allow create: if isAdminOrCajero() && isValidConfiguracion(incoming());
-      allow update: if isAdminOrCajero() && isValidConfiguracion(incoming())
-                    && incoming().diff(existing()).affectedKeys().hasAny(['tasa_dolar', 'logo_url']);
+      allow read: if true; 
+      allow write: if isAdminOrCajero() && isValidConfiguracion(incoming());
     }
 
     match /usuarios/{userId} {
