@@ -3,9 +3,9 @@ import { db } from '../lib/firebase';
 import { collection, onSnapshot, doc, writeBatch, query, limit, where, getDocs, increment } from 'firebase/firestore';
 import { useConfig } from '../contexts/ConfigContext';
 import { useAuth } from '../contexts/AuthContext';
-import { formatUSD, formatBs } from '../lib/utils';
+import { formatUSD, formatBs, cn } from '../lib/utils';
 import { Producto, VentaItem } from '../types';
-import { Search, Trash2, Scan, X } from 'lucide-react';
+import { Search, Trash2, Scan, X, ShoppingCart } from 'lucide-react';
 import Scanner from '../components/Scanner';
 import toast from 'react-hot-toast';
 
@@ -18,6 +18,8 @@ export default function Vender() {
   const [carrito, setCarrito] = useState<VentaItem[]>([]);
   const [procesando, setProcesando] = useState(false);
   const [scannerAbierto, setScannerAbierto] = useState(false);
+  const [showMobileCart, setShowMobileCart] = useState(false);
+
   
   // Weight Modal State
   const [modalPesoOpen, setModalPesoOpen] = useState(false);
@@ -190,8 +192,8 @@ export default function Vender() {
         />
       )}
       {/* Product Selection */}
-      <section className="flex-1 p-4 md:p-6 flex flex-col space-y-6 overflow-hidden border-r border-gray-100">
-        <div className="flex space-x-4 items-center">
+      <section className="flex-1 p-4 md:p-6 flex flex-col space-y-6 overflow-hidden border-r border-gray-100 relative">
+        <div className="flex space-x-4 items-center shrink-0">
           <div className="relative flex-1">
             <input 
               type="text" 
@@ -213,7 +215,7 @@ export default function Vender() {
           </button>
         </div>
         
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 overflow-y-auto scroll-hide pb-10">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 overflow-y-auto scroll-hide pb-20 md:pb-10">
           {prodFiltrados.map(prod => (
             <div 
               key={prod.id} 
@@ -267,14 +269,34 @@ export default function Vender() {
             </div>
           )}
         </div>
+
+        {/* Mobile floating button to open cart */}
+        <div className="md:hidden absolute bottom-4 left-4 right-4 z-10">
+          <button
+            onClick={() => setShowMobileCart(true)}
+            className="w-full bg-yellow-400 border-2 border-black p-4 flex justify-between items-center font-black shadow-[4px_4px_0px_rgba(0,0,0,1)] hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-[2px_2px_0px_rgba(0,0,0,1)] transition-all"
+          >
+            <div className="flex items-center gap-2">
+              <ShoppingCart size={20} />
+              <span>Ver Carrito ({carrito.length})</span>
+            </div>
+            <span>{formatUSD(totalUSD)}</span>
+          </button>
+        </div>
       </section>
 
       {/* Cart View */}
-      <aside className="w-full md:w-80 lg:w-96 bg-gray-50 flex flex-col border-l border-gray-200 shrink-0 h-1/2 md:h-full">
+      <aside className={cn(
+        "w-full md:w-80 lg:w-96 bg-gray-50 flex flex-col border-l border-gray-200 shrink-0 md:h-full",
+        showMobileCart ? "absolute inset-0 z-40 bg-white" : "hidden md:flex"
+      )}>
         <div className="p-4 md:p-6 flex-1 flex flex-col h-full overflow-hidden">
           <div className="flex justify-between items-center border-b border-black pb-2 mb-4">
             <h2 className="text-xs font-black uppercase tracking-[0.2em] m-0">Carrito de Venta</h2>
-            <span className="text-[10px] font-mono font-bold bg-black text-white px-2 py-0.5 rounded-sm">{carrito.length} Items</span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono font-bold bg-black text-white px-2 py-0.5 rounded-sm">{carrito.length} Items</span>
+              <button onClick={() => setShowMobileCart(false)} className="md:hidden text-black p-1 border-2 border-transparent hover:border-black"><X size={18} /></button>
+            </div>
           </div>
           
           <div className="flex-1 overflow-y-auto scroll-hide space-y-4 pr-1">
@@ -287,31 +309,38 @@ export default function Vender() {
               </div>
             ) : (
               carrito.map((item, idx) => (
-                <div key={item.productoId} className={`flex justify-between text-sm items-center ${idx > 0 && 'border-t border-gray-200 pt-3'}`}>
-                  <div className="flex flex-col flex-1 pr-2">
-                    <strong className="leading-tight truncate">
+                <div key={item.productoId} className={`flex flex-col text-sm ${idx > 0 && 'border-t border-gray-200 pt-3'}`}>
+                  <div className="flex justify-between items-start mb-2">
+                    <strong className="leading-tight flex-1 pr-2 line-clamp-2">
                       {item.unidad_medida === 'kg' ? `${item.cantidad.toFixed(3)} Kg` : `${item.cantidad}x`} {item.nombre}
                     </strong>
-                    <div className="flex space-x-2 mt-1 items-center">
-                      {item.unidad_medida !== 'kg' && (
+                    <span className="font-black shrink-0">{formatUSD(item.subtotal_usd)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex space-x-1 items-center bg-white border border-gray-200 p-1 rounded-md">
+                      {item.unidad_medida !== 'kg' ? (
                         <>
-                          <button onClick={() => modificarCantidad(item.productoId, -1)} className="text-[10px] font-black uppercase text-gray-400 hover:text-black border border-gray-200 px-1.5">-</button>
-                          <button onClick={() => modificarCantidad(item.productoId, 1)} className="text-[10px] font-black uppercase text-gray-400 hover:text-black border border-gray-200 px-1.5">+</button>
+                          <button onClick={() => modificarCantidad(item.productoId, -1)} className="text-xl font-black text-black hover:bg-gray-100 w-8 h-8 flex items-center justify-center rounded">-</button>
+                          <span className="font-mono px-2 font-bold select-none">{item.cantidad}</span>
+                          <button onClick={() => modificarCantidad(item.productoId, 1)} className="text-xl font-black text-black hover:bg-gray-100 w-8 h-8 flex items-center justify-center rounded">+</button>
                         </>
+                      ) : (
+                        <span className="font-mono text-xs px-2 font-bold text-gray-500">Peso Fijo</span>
                       )}
-                      <button onClick={() => quitarDelCarrito(item.productoId)} className="text-red-400 hover:text-red-600 ml-1" title="Quitar">
-                        <Trash2 size={12} />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] text-gray-500 font-mono">@ {formatUSD(item.precio_unitario_usd)}</span>
+                      <button onClick={() => quitarDelCarrito(item.productoId)} className="text-white bg-red-500 hover:bg-red-600 p-2 rounded-sm transition-colors" title="Quitar">
+                        <Trash2 size={14} />
                       </button>
-                      <span className="text-[10px] text-gray-500 font-mono ml-auto">@ {formatUSD(item.precio_unitario_usd)}</span>
                     </div>
                   </div>
-                  <span className="font-bold shrink-0">{formatUSD(item.subtotal_usd)}</span>
                 </div>
               ))
             )}
           </div>
           
-          <div className="mt-4 space-y-2 border-t-2 border-black pt-4 shrink-0">
+          <div className="mt-4 space-y-2 border-t-2 border-black pt-4 shrink-0 bg-gray-50 pb-2">
             <div className="flex justify-between items-center">
               <span className="text-sm text-gray-600">Subtotal (USD)</span>
               <span className="font-bold text-lg">{formatUSD(totalUSD)}</span>
@@ -332,14 +361,9 @@ export default function Vender() {
             <button 
               onClick={procesarVenta}
               disabled={carrito.length === 0 || procesando}
-              className="w-full bg-yellow-400 py-4 mt-2 font-black text-lg uppercase tracking-tighter shadow-md hover:bg-yellow-500 transition-all disabled:opacity-50 disabled:hover:bg-yellow-400"
+              className="w-full bg-yellow-400 py-4 mt-2 border-2 border-black font-black text-lg uppercase tracking-tighter shadow-[4px_4px_0px_rgba(0,0,0,1)] hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-[2px_2px_0px_rgba(0,0,0,1)] transition-all disabled:opacity-50 disabled:shadow-none disabled:translate-x-0 disabled:translate-y-0"
             >
               {procesando ? 'Procesando...' : 'Registrar Venta'}
-            </button>
-            
-            {/* Opcional: un botón placeholder o acción rápida */}
-            <button disabled className="w-full border-2 border-black py-2 mt-2 font-bold text-xs uppercase tracking-widest hover:bg-black hover:text-white transition-all opacity-30 cursor-not-allowed">
-              Opciones de Pago
             </button>
           </div>
         </div>

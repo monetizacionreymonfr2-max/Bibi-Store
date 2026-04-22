@@ -236,19 +236,24 @@ export default function Fiados() {
               <h2 className="font-black text-xl uppercase tracking-widest mr-6">Registrar Deuda</h2>
             </div>
             <form onSubmit={guardarFiado} className="p-6 space-y-6">
-              <div>
+              <div className="relative">
                 <label className="block text-[10px] font-black uppercase tracking-widest text-black mb-2">Nombre del Cliente</label>
-                <input 
-                  required 
-                  type="text" 
-                  list="clientes-existentes"
-                  value={cliente} 
-                  onChange={e=>setCliente(e.target.value)} 
-                  className="w-full border-2 border-black p-4 rounded-none focus:outline-none focus:border-yellow-400 font-bold" 
-                  placeholder="ESCRIBE O SELECCIONA..." 
-                />
+                <div className="flex bg-gray-50 border-2 border-black focus-within:border-yellow-400">
+                  <input 
+                    required 
+                    type="text" 
+                    list="clientes-existentes"
+                    value={cliente} 
+                    onChange={e=>setCliente(e.target.value)} 
+                    className="w-full bg-transparent p-4 font-bold focus:outline-none" 
+                    placeholder="ESCRIBE O SELECCIONA..." 
+                  />
+                  <div className="flex items-center pr-4 pointer-events-none text-gray-400">
+                     <ChevronDown size={18} />
+                  </div>
+                </div>
                 <datalist id="clientes-existentes">
-                  {[...new Set(fiados.map(f => f.cliente))].map(c => <option key={c} value={c} />)}
+                  {[...new Set(fiados.map(f => f.cliente))].sort().map(c => <option key={c} value={c} />)}
                 </datalist>
                 <p className="text-[8px] font-mono text-gray-400 mt-1 uppercase tracking-tighter">Si el cliente ya tiene una deuda pendiente, se sumará al total.</p>
               </div>
