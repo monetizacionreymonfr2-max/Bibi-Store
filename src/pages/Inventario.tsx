@@ -19,6 +19,7 @@ export default function Inventario() {
   const [modalAbierto, setModalAbierto] = useState(false);
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [scannerAbierto, setScannerAbierto] = useState(false);
+  const [guardando, setGuardando] = useState(false);
   
   // Form state
   const [nombre, setNombre] = useState('');
@@ -169,34 +170,46 @@ export default function Inventario() {
   const guardarProducto = async (e: React.FormEvent) => {
     e.preventDefault();
     const loadingToast = toast.loading("Guardando producto...");
+    
+    // Safety timeout to prevent infinite hanging
+    const timeoutId = setTimeout(() => {
+      setModalAbierto(false);
+      toast.error("La operación está tardando demasiado. Verificando estado local...", { id: loadingToast, duration: 4000 });
+      setGuardando(false);
+    }, 15000);
+
+    setGuardando(true);
     try {
       let finalImagenUrl = imagenUrl;
 
       // Subir a Firebase Storage si hay un archivo nuevo
       if (imagenArchivo) {
         if (!navigator.onLine) {
-          toast.error("Sin internet: La foto NO se guardará.", { id: loadingToast, duration: 3000 });
+          toast.error("Sin internet: La foto NO se guardará.", { duration: 3000 });
         } else {
           try {
+            console.log("Iniciando subida de imagen...");
             const storageRef = ref(storage, `productos/${Date.now()}_${imagenArchivo.name}`);
             const snapshot = await uploadBytes(storageRef, imagenArchivo);
             finalImagenUrl = await getDownloadURL(snapshot.ref);
+            console.log("Imagen subida con éxito:", finalImagenUrl);
           } catch (storageError) {
             console.error("Storage upload failed:", storageError);
-            toast.error("Error al subir imagen, guardando datos...", { id: loadingToast, duration: 2000 });
+            toast.error("Error al subir imagen, guardando solo texto...", { duration: 3000 });
           }
         }
       }
 
-      const payloadObj: any = {
-        nombre,
+      const payloadObj = {
+        nombre: nombre.trim(),
         precio_usd: Number(precio) || 0,
         stock: Number(stock) || 0,
         unidad_medida: unidadMedida,
-        codigo_barras: codigo || "N/A",
-        imagen_url: finalImagenUrl
+        codigo_barras: (codigo || "N/A").trim(),
+        imagen_url: finalImagenUrl || ""
       };
       
+      console.log("Ejecutando batch commit con payload:", payloadObj);
       const batch = writeBatch(db);
 
       if (editandoId) {
@@ -218,18 +231,23 @@ export default function Inventario() {
       }
       
       await batch.commit();
+      console.log("Batch commit completado");
+      clearTimeout(timeoutId);
       setModalAbierto(false);
       toast.success("Producto guardado correctamente", { id: loadingToast });
     } catch (err) {
-      console.error(err);
+      clearTimeout(timeoutId);
+      console.error("Error detallado al guardar:", err);
       const errorMsg = err instanceof Error ? err.message : "Error desconocido";
-      if (errorMsg.includes("offline")) {
-        // En Firestore con persistencia, el batch.commit puede tardar si está offline
+      
+      if (errorMsg.includes("offline") || !navigator.onLine) {
         setModalAbierto(false);
         toast.success("Guardado local (se sincronizará al conectar)", { id: loadingToast });
       } else {
-        toast.error("Error al guardar: " + errorMsg, { id: loadingToast });
+        toast.error("Error Firebase: " + errorMsg, { id: loadingToast, duration: 5000 });
       }
+    } finally {
+      setGuardando(false);
     }
   };
 
@@ -455,8 +473,15 @@ export default function Inventario() {
               </div>
 
               <div className="pt-4 flex gap-2">
-                <button type="button" onClick={() => setModalAbierto(false)} className="flex-1 p-4 font-black uppercase tracking-widest hover:bg-gray-100 border-2 border-black text-xs">Cancelar</button>
-                <button type="submit" className="flex-1 p-4 font-black bg-yellow-400 text-black uppercase tracking-widest hover:bg-black hover:text-white transition-all border-2 border-black text-xs">Confirmar</button>
+                <button type="button" onClick={() => setModalAbierto(false)} disabled={guardando} className="flex-1 p-4 font-black uppercase tracking-widest hover:bg-gray-100 border-2 border-black text-xs disabled:opacity-50">Cancelar</button>
+                <button type="submit" disabled={guardando} className="flex-1 p-4 font-black bg-yellow-400 text-black uppercase tracking-widest hover:bg-black hover:text-white transition-all border-2 border-black text-xs disabled:opacity-50 flex items-center justify-center gap-2">
+                  {guardando ? (
+                    <>
+                      <div className="animate-spin h-4 w-4 border-2 border-black border-t-transparent rounded-full" />
+                      Espere...
+                    </>
+                  ) : 'Confirmar'}
+                </button>
               </div>
             </form>
           </div>

@@ -73,10 +73,9 @@ service cloud.firestore {
     }
 
     function isValidProducto(data) {
-      let allowedKeys = ['nombre', 'precio_usd', 'stock', 'codigo_barras', 'imagen_url', 'unidad_medida'];
       let requiredKeys = ['nombre', 'precio_usd', 'stock', 'codigo_barras'];
 
-      return data.keys().hasAll(requiredKeys) && data.keys().hasOnly(allowedKeys)
+      return data.keys().hasAll(requiredKeys)
              && data.nombre is string && data.nombre.size() > 0 && data.nombre.size() <= 200
              && data.precio_usd is number && data.precio_usd >= 0
              && data.stock is number && data.stock >= 0
@@ -87,7 +86,6 @@ service cloud.firestore {
 
     function isValidCostoProducto(data) {
       return data.keys().hasAll(['costo_usd'])
-             && data.keys().size() == 1
              && data.costo_usd is number && data.costo_usd >= 0;
     }
 
@@ -160,7 +158,7 @@ service cloud.firestore {
       allow create: if isAdmin() && isValidId(productoId) && isValidProducto(incoming());
       
       allow update: if isValidId(productoId) && isValidProducto(incoming()) && (
-        (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['nombre', 'precio_usd', 'stock', 'codigo_barras', 'imagen_url', 'unidad_medida'])) ||
+        isAdmin() ||
         (isCajero() && incoming().diff(existing()).affectedKeys().hasOnly(['stock']) && incoming().stock < existing().stock)
       );
       
