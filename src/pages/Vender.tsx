@@ -5,7 +5,8 @@ import { useConfig } from '../contexts/ConfigContext';
 import { useAuth } from '../contexts/AuthContext';
 import { formatUSD, formatBs } from '../lib/utils';
 import { Producto, VentaItem } from '../types';
-import { Search } from 'lucide-react';
+import { Search, Trash2, Scan } from 'lucide-react';
+import Scanner from '../components/Scanner';
 
 export default function Vender() {
   const { tasaDolar } = useConfig();
@@ -15,6 +16,7 @@ export default function Vender() {
   const [busqueda, setBusqueda] = useState('');
   const [carrito, setCarrito] = useState<VentaItem[]>([]);
   const [procesando, setProcesando] = useState(false);
+  const [scannerAbierto, setScannerAbierto] = useState(false);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'productos'), (snap) => {
@@ -53,6 +55,10 @@ export default function Vender() {
     }));
   };
 
+  const quitarDelCarrito = (prodId: string) => {
+    setCarrito(prev => prev.filter(i => i.productoId !== prodId));
+  };
+
   const totalUSD = carrito.reduce((acc, curr) => acc + curr.subtotal_usd, 0);
   const totalVED = totalUSD * tasaDolar;
 
@@ -70,6 +76,7 @@ export default function Vender() {
         vendedor_id: user!.uid,
         items: carrito.map(i => ({
           productoId: i.productoId,
+          nombre: i.nombre,
           cantidad: i.cantidad,
           precio_unitario_usd: i.precio_unitario_usd
         }))
@@ -95,8 +102,31 @@ export default function Vender() {
     }
   };
 
+  const handleScan = (code: string) => {
+    const term = code.toLowerCase();
+    const match = productos.find(p => p.codigo_barras?.toLowerCase() === term);
+    
+    if (match) {
+      if (match.stock > 0) {
+        agregarAlCarrito(match);
+      } else {
+        alert(`El producto "${match.nombre}" está agotado.`);
+      }
+    } else {
+      setBusqueda(code);
+      alert("No se encontró el producto exacto. Búsqueda manual activada.");
+    }
+  };
+
   return (
-    <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
+    <div className="flex flex-col md:flex-row flex-1 overflow-hidden relative">
+      {scannerAbierto && (
+        <Scanner 
+          onScan={handleScan} 
+          onClose={() => setScannerAbierto(false)} 
+          title="Venta: Escanear Producto" 
+        />
+      )}
       {/* Product Selection */}
       <section className="flex-1 p-4 md:p-6 flex flex-col space-y-6 overflow-hidden border-r border-gray-100">
         <div className="flex space-x-4 items-center">
@@ -112,8 +142,12 @@ export default function Vender() {
               <Search size={18} />
             </div>
           </div>
-          <button className="bg-black text-white px-6 py-3 font-bold text-sm uppercase tracking-wider hover:bg-zinc-800 transition-colors hidden sm:block">
-            Escanear
+          <button 
+            onClick={() => setScannerAbierto(true)}
+            className="bg-black text-white px-6 py-3 font-bold text-sm uppercase tracking-wider hover:bg-zinc-800 transition-colors flex items-center gap-2"
+          >
+            <Scan size={18} />
+            <span className="hidden sm:inline">Escanear</span>
           </button>
         </div>
         
@@ -191,9 +225,12 @@ export default function Vender() {
                 <div key={item.productoId} className={`flex justify-between text-sm items-center ${idx > 0 && 'border-t border-gray-200 pt-3'}`}>
                   <div className="flex flex-col flex-1 pr-2">
                     <strong className="leading-tight truncate">{item.cantidad}x {item.nombre}</strong>
-                    <div className="flex space-x-2 mt-1">
-                      <button onClick={() => modificarCantidad(item.productoId, -1)} className="text-[10px] font-bold uppercase text-gray-400 hover:text-black">-1</button>
-                      <button onClick={() => modificarCantidad(item.productoId, 1)} className="text-[10px] font-bold uppercase text-gray-400 hover:text-black">+1</button>
+                    <div className="flex space-x-2 mt-1 items-center">
+                      <button onClick={() => modificarCantidad(item.productoId, -1)} className="text-[10px] font-black uppercase text-gray-400 hover:text-black border border-gray-200 px-1.5">-</button>
+                      <button onClick={() => modificarCantidad(item.productoId, 1)} className="text-[10px] font-black uppercase text-gray-400 hover:text-black border border-gray-200 px-1.5">+</button>
+                      <button onClick={() => quitarDelCarrito(item.productoId)} className="text-red-400 hover:text-red-600 ml-1" title="Quitar">
+                        <Trash2 size={12} />
+                      </button>
                       <span className="text-[10px] text-gray-500 font-mono ml-auto">@ {formatUSD(item.precio_unitario_usd)}</span>
                     </div>
                   </div>

@@ -27,6 +27,7 @@ export interface Venta {
   vendedor_id: string;
   items: Array<{
     productoId: string;
+    nombre?: string;
     cantidad: number;
     precio_unitario_usd: number;
   }>;
@@ -40,6 +41,11 @@ export interface Fiado {
   monto_usd: number;
   fecha: number;
   estado: 'pendiente' | 'pagado';
+  descripcion?: string;
+  historial_abonos?: Array<{
+    monto_usd: number;
+    fecha: number;
+  }>;
 }
 
 export interface Config {

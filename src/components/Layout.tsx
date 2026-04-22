@@ -2,13 +2,26 @@ import { Outlet, Link, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useConfig } from "../contexts/ConfigContext";
 import { signOut } from "../lib/firebase";
-import { Store, ShoppingCart, Users, Settings, Package, LogOut, FileText, ShieldAlert } from "lucide-react";
+import { Store, ShoppingCart, Users, Settings, Package, LogOut, FileText, ShieldAlert, WifiOff } from "lucide-react";
 import { cn } from "../lib/utils";
+import React, { useEffect, useState } from "react";
 
 export default function Layout() {
   const { role, user } = useAuth();
   const { tasaDolar } = useConfig();
   const location = useLocation();
+  const [offline, setOffline] = useState(!navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => setOffline(false);
+    const handleOffline = () => setOffline(true);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   const navItems = [
     { name: 'Vender', path: '/', icon: ShoppingCart, roles: ['superadmin', 'admin', 'cajero'] },
@@ -42,6 +55,13 @@ export default function Layout() {
         </div>
         
         <div className="flex items-center space-x-4 sm:space-x-6">
+          {offline && (
+            <div className="flex items-center gap-2 bg-red-600 px-3 py-1 animate-pulse border border-white">
+              <WifiOff size={14} className="text-white" />
+              <span className="text-[10px] font-black uppercase text-white hidden sm:inline">Offline</span>
+            </div>
+          )}
+          
           <div className="hidden sm:flex bg-zinc-800 px-3 py-1 rounded-sm border border-zinc-700 flex-col items-center">
             <span className="text-[10px] uppercase text-gray-400 font-bold tracking-widest">Tasa del Día</span>
             <span className="font-mono font-bold text-yellow-400">1 USD = {tasaDolar || '---'} VED</span>

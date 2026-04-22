@@ -106,12 +106,21 @@ service cloud.firestore {
     }
 
     function isValidFiado(data) {
-      return data.keys().hasAll(['cliente', 'monto_usd', 'fecha', 'estado'])
-             && data.keys().size() == 4
+      let hasDesc = data.keys().hasAny(['descripcion']);
+      let hasHistory = data.keys().hasAny(['historial_abonos']);
+      
+      // Calculate expected size based on optional keys
+      let expectedSize = 4 + (hasDesc ? 1 : 0) + (hasHistory ? 1 : 0);
+      
+      let keysValid = data.keys().hasAll(['cliente', 'monto_usd', 'fecha', 'estado']) && data.keys().size() == expectedSize;
+
+      return keysValid
              && data.cliente is string && data.cliente.size() > 0 && data.cliente.size() <= 200
              && data.monto_usd is number && data.monto_usd >= 0
              && data.fecha is number
-             && data.estado is string && (data.estado == 'pendiente' || data.estado == 'pagado');
+             && data.estado is string && (data.estado == 'pendiente' || data.estado == 'pagado')
+             && (!hasDesc || (data.descripcion is string && data.descripcion.size() <= 1000))
+             && (!hasHistory || (data.historial_abonos is list && data.historial_abonos.size() <= 500));
     }
 
     // ---- MATCH BLOCKS ----
@@ -131,7 +140,7 @@ service cloud.firestore {
 
     match /configuracion/general {
       allow read: if isAdminOrCajero();
-      allow create: if isSuperAdmin() && isValidConfiguracion(incoming());
+      allow create: if isAdminOrCajero() && isValidConfiguracion(incoming());
       allow update: if isAdminOrCajero() && isValidConfiguracion(incoming())
                     && incoming().diff(existing()).affectedKeys().hasOnly(['tasa_dolar']);
     }
@@ -161,7 +170,7 @@ service cloud.firestore {
     match /costos_productos/{productoId} {
       allow read: if isAdmin();
       allow create: if isAdmin() && isValidId(productoId) && isValidCostoProducto(incoming()) 
-                    && exists(/databases/$(database)/documents/productos/$(productoId));
+                    && existsAfter(/databases/$(database)/documents/productos/$(productoId));
       allow update: if isAdmin() && isValidId(productoId) && isValidCostoProducto(incoming())
                     && incoming().diff(existing()).affectedKeys().hasOnly(['costo_usd']);
       allow delete: if isAdmin() && isValidId(productoId);
@@ -178,7 +187,7 @@ service cloud.firestore {
       allow create: if isAdminOrCajero() && isValidId(fiadoId) && isValidFiado(incoming());
       allow update: if isAdminOrCajero() && isValidId(fiadoId) && isValidFiado(incoming())
                     && (existing().estado != 'pagado' || isAdmin())
-                    && incoming().diff(existing()).affectedKeys().hasOnly(['cliente', 'monto_usd', 'fecha', 'estado']);
+                    && incoming().diff(existing()).affectedKeys().hasOnly(['cliente', 'monto_usd', 'fecha', 'estado', 'descripcion', 'historial_abonos']);
       allow delete: if isAdmin();
     }
   }

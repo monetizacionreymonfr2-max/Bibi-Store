@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { collection, onSnapshot, addDoc, doc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { Fiado } from '../types';
-import { formatUSD, formatBs } from '../lib/utils';
-import { Plus, Check, Search, X, Users } from 'lucide-react';
+import { formatUSD, formatBs, cn } from '../lib/utils';
+import { Plus, Check, Search, X, Users, CreditCard, History, ChevronDown, ChevronUp } from 'lucide-react';
 import { useConfig } from '../contexts/ConfigContext';
 import { format } from 'date-fns';
 
@@ -13,10 +13,20 @@ export default function Fiados() {
   const { tasaDolar } = useConfig();
   const [fiados, setFiados] = useState<Fiado[]>([]);
   const [busqueda, setBusqueda] = useState('');
+  const [expandedHistorial, setExpandedHistorial] = useState<string | null>(null);
   
   const [modalAbierto, setModalAbierto] = useState(false);
   const [cliente, setCliente] = useState('');
   const [montoUSD, setMontoUSD] = useState('');
+  const [descripcion, setDescripcion] = useState('');
+
+  const [modalAbono, setModalAbono] = useState<{abierto: boolean, fiadoId: string, cliente: string, deuda: number}>({
+    abierto: false,
+    fiadoId: '',
+    cliente: '',
+    deuda: 0
+  });
+  const [montoAbono, setMontoAbono] = useState('');
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'fiados'), (snap) => {
@@ -32,25 +42,71 @@ export default function Fiados() {
   const guardarFiado = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await addDoc(collection(db, 'fiados'), {
-        cliente,
-        monto_usd: Number(montoUSD),
-        fecha: Date.now(),
-        estado: 'pendiente'
-      });
+      const existing = fiados.find(f => f.cliente.toLowerCase() === cliente.trim().toLowerCase() && f.estado === 'pendiente');
+      
+      if (existing) {
+        // Sumar a la deuda existente
+        await updateDoc(doc(db, 'fiados', existing.id), {
+          monto_usd: existing.monto_usd + Number(montoUSD),
+          descripcion: existing.descripcion ? `${existing.descripcion}, ${descripcion}` : descripcion,
+          fecha: Date.now()
+        });
+      } else {
+        await addDoc(collection(db, 'fiados'), {
+          cliente: cliente.trim().toUpperCase(),
+          monto_usd: Number(montoUSD),
+          descripcion: descripcion,
+          fecha: Date.now(),
+          estado: 'pendiente'
+        });
+      }
+      
       setModalAbierto(false);
       setCliente('');
       setMontoUSD('');
+      setDescripcion('');
     } catch (err) {
       console.error(err);
       alert("Error registrando fiado");
     }
   };
 
-  const marcarPagado = async (id: string) => {
-    if(!confirm("¿Confirmar pago de esta deuda?")) return;
+  const abonarDeuda = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const monto = Number(montoAbono);
+    if (monto <= 0 || monto > modalAbono.deuda) {
+      alert("Monto inválido");
+      return;
+    }
+
     try {
-      await updateDoc(doc(db, 'fiados', id), { estado: 'pagado' });
+      const nuevoMonto = modalAbono.deuda - monto;
+      await updateDoc(doc(db, 'fiados', modalAbono.fiadoId), {
+        monto_usd: nuevoMonto,
+        estado: nuevoMonto <= 0 ? 'pagado' : 'pendiente',
+        historial_abonos: arrayUnion({
+          monto_usd: monto,
+          fecha: Date.now()
+        })
+      });
+      setModalAbono({ abierto: false, fiadoId: '', cliente: '', deuda: 0 });
+      setMontoAbono('');
+    } catch (err) {
+      alert("Error al procesar abono");
+    }
+  };
+
+  const marcarPagado = async (fiado: Fiado) => {
+    if(!confirm("¿Confirmar pago total de esta deuda?")) return;
+    try {
+      await updateDoc(doc(db, 'fiados', fiado.id), { 
+        estado: 'pagado', 
+        monto_usd: 0,
+        historial_abonos: arrayUnion({
+          monto_usd: fiado.monto_usd, // Liquidamos lo que falta
+          fecha: Date.now()
+        })
+      });
     } catch (err) {
       console.error(err);
       alert("Error al actualizar la deuda");
@@ -71,7 +127,7 @@ export default function Fiados() {
           className="bg-black text-white flex items-center justify-center gap-2 px-6 py-4 font-black uppercase tracking-widest transition-all w-full md:w-auto hover:bg-yellow-400 hover:text-black border-2 border-black focus:outline-none"
         >
           <Plus size={18} />
-          Nuevo
+          Nuevo Registro
         </button>
       </div>
 
@@ -80,7 +136,7 @@ export default function Fiados() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
           <input 
             type="text" 
-            placeholder="BUSCAR CLIENTE..." 
+            placeholder="BUSCAR CLIENTE POR NOMBRE..." 
             value={busqueda}
             onChange={e => setBusqueda(e.target.value)}
             className="w-full pl-10 pr-4 py-4 border-2 border-black rounded-none focus:outline-none focus:border-yellow-400 font-mono text-xs uppercase tracking-widest bg-gray-50"
@@ -88,38 +144,77 @@ export default function Fiados() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-gray-50 p-4 md:p-6 content-start">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="flex-1 overflow-y-auto bg-gray-50 p-4 md:p-6 content-start pb-20">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {fiadosFiltrados.map(f => (
-            <div key={f.id} className={`p-5 flex flex-col border-2 border-black shadow-[4px_4px_0px_rgba(0,0,0,1)] hover:-translate-y-1 transition-transform relative bg-white ${f.estado === 'pagado' ? 'opacity-60 grayscale' : ''}`}>
-              <div className="flex justify-between items-start mb-4">
-                <span className={`text-[10px] font-black px-2 py-0.5 uppercase tracking-widest ${f.estado === 'pagado' ? 'bg-black text-white' : 'bg-red-600 text-white'}`}>
-                  {f.estado}
-                </span>
-                <div className="text-[10px] text-gray-500 font-mono tracking-widest">
-                  {format(f.fecha, 'dd/MM/yy')}
+            <div key={f.id} className={`flex flex-col border-2 border-black shadow-[4px_4px_0px_rgba(0,0,0,1)] hover:-translate-y-1 transition-transform relative bg-white ${f.estado === 'pagado' ? 'opacity-70' : ''}`}>
+              <div className="p-5 flex-1 flex flex-col">
+                <div className="flex justify-between items-start mb-4">
+                  <span className={cn(
+                    "text-[8px] font-black px-2 py-0.5 uppercase tracking-widest text-white",
+                    f.estado === 'pagado' ? 'bg-black' : 'bg-red-600'
+                  )}>
+                    {f.estado === 'pagado' ? 'LIQUIDADO' : 'PENDIENTE'}
+                  </span>
+                  <div className="text-[10px] text-gray-500 font-mono tracking-widest">
+                    {format(f.fecha, 'dd/MM/yy')}
+                  </div>
+                </div>
+                <h3 className="font-extrabold text-xl text-black mb-1 truncate">{f.cliente}</h3>
+                {f.descripcion && (
+                  <p className="text-[10px] text-gray-500 font-mono italic mb-4 line-clamp-2">🛒 {f.descripcion}</p>
+                )}
+                
+                <div className="mt-auto border-t-2 border-dashed border-gray-300 pt-4 flex flex-col gap-1 items-end">
+                  <div className="font-black text-2xl mb-0 leading-none">{formatUSD(f.monto_usd)}</div>
+                  <div className="text-[10px] text-gray-400 font-mono mb-4">{formatBs(f.monto_usd * tasaDolar).replace('Bs. ', '')} VED</div>
+                  
+                  {f.estado === 'pendiente' && (
+                    <div className="w-full flex flex-col gap-2">
+                      <button 
+                        onClick={() => setModalAbono({ abierto: true, fiadoId: f.id, cliente: f.cliente, deuda: f.monto_usd })}
+                        className="w-full flex items-center justify-center gap-2 text-[10px] font-black text-black border-2 border-black bg-white py-2 uppercase tracking-widest hover:bg-black hover:text-white transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)]"
+                      >
+                        <CreditCard size={14} /> ABONAR
+                      </button>
+                      <button 
+                        onClick={() => marcarPagado(f)}
+                        className="w-full flex items-center justify-center gap-2 text-[10px] font-black text-black border-2 border-black bg-yellow-400 py-2 uppercase tracking-widest hover:bg-black hover:text-white transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)]"
+                      >
+                        <Check size={14} /> PAGAR TODO
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
-              <h3 className="font-extrabold text-xl text-black mb-4 truncate">{f.cliente}</h3>
-              
-              <div className="mt-auto border-t-2 border-dashed border-gray-300 pt-4 flex flex-col gap-1 items-end">
-                <div className="font-black text-2xl mb-0 leading-none">{formatUSD(f.monto_usd)}</div>
-                <div className="text-[10px] text-gray-500 font-mono mb-4">{formatBs(f.monto_usd * tasaDolar).replace('Bs. ', '')} VED</div>
-                
-                {f.estado === 'pendiente' && (
+
+              {/* Historial Toggle */}
+              {f.historial_abonos && f.historial_abonos.length > 0 && (
+                <div className="border-t-2 border-black">
                   <button 
-                    onClick={() => marcarPagado(f.id)}
-                    className="w-full flex items-center justify-center gap-2 text-xs font-black text-black border-2 border-black bg-yellow-400 py-3 uppercase tracking-widest hover:bg-black hover:text-white transition-all"
+                    onClick={() => setExpandedHistorial(expandedHistorial === f.id ? null : f.id)}
+                    className="w-full py-2 px-4 flex justify-between items-center bg-gray-50 text-[9px] font-black uppercase tracking-widest hover:bg-gray-100"
                   >
-                    <Check size={16} /> LIQUIDAR
+                    <span className="flex items-center gap-2"><History size={12} /> Ver historial de pagos</span>
+                    {expandedHistorial === f.id ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                   </button>
-                )}
-              </div>
+                  {expandedHistorial === f.id && (
+                    <div className="p-3 bg-white space-y-2 border-t border-black max-h-32 overflow-y-auto">
+                      {f.historial_abonos.map((abono, idx) => (
+                        <div key={idx} className="flex justify-between items-center text-[10px] font-mono">
+                          <span className="text-gray-400">{format(abono.fecha, 'dd/MM/yy HH:mm')}</span>
+                          <span className="font-bold text-green-600">+{formatUSD(abono.monto_usd)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ))}
           {fiadosFiltrados.length === 0 && (
-            <div className="col-span-full py-12 text-center text-gray-400 uppercase tracking-widest font-bold text-xs">
-              No hay cuentas por cobrar.
+            <div className="col-span-full py-12 text-center text-gray-400 uppercase tracking-widest font-bold text-xs italic">
+              No hay cuentas encontradas.
             </div>
           )}
         </div>
@@ -127,32 +222,103 @@ export default function Fiados() {
 
       {modalAbierto && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
-          <div className="bg-white border-4 border-black shadow-[8px_8px_0px_rgba(0,0,0,1)] w-full max-w-md overflow-hidden relative">
+          <div className="bg-white border-4 border-black shadow-[8px_8px_0px_rgba(0,0,0,1)] w-full max-w-md overflow-hidden relative animate-in zoom-in-95 duration-200">
             <button onClick={() => setModalAbierto(false)} className="absolute top-4 right-4 text-black hover:text-red-600 z-10 transition-colors">
               <X size={24} />
             </button>
             <div className="p-6 border-b-2 border-black bg-yellow-400">
-              <h2 className="font-black text-xl uppercase tracking-widest mr-6">Nuevo Fiado</h2>
+              <h2 className="font-black text-xl uppercase tracking-widest mr-6">Registrar Deuda</h2>
             </div>
             <form onSubmit={guardarFiado} className="p-6 space-y-6">
               <div>
                 <label className="block text-[10px] font-black uppercase tracking-widest text-black mb-2">Nombre del Cliente</label>
-                <input required type="text" value={cliente} onChange={e=>setCliente(e.target.value)} className="w-full border-2 border-black p-4 rounded-none focus:outline-none focus:border-yellow-400 font-bold" placeholder="EJ. JUAN PEREZ" />
+                <input 
+                  required 
+                  type="text" 
+                  list="clientes-existentes"
+                  value={cliente} 
+                  onChange={e=>setCliente(e.target.value)} 
+                  className="w-full border-2 border-black p-4 rounded-none focus:outline-none focus:border-yellow-400 font-bold" 
+                  placeholder="ESCRIBE O SELECCIONA..." 
+                />
+                <datalist id="clientes-existentes">
+                  {[...new Set(fiados.map(f => f.cliente))].map(c => <option key={c} value={c} />)}
+                </datalist>
+                <p className="text-[8px] font-mono text-gray-400 mt-1 uppercase tracking-tighter">Si el cliente ya tiene una deuda pendiente, se sumará al total.</p>
               </div>
+
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-black mb-2">Productos / Detalles</label>
+                <textarea 
+                  value={descripcion} 
+                  onChange={e=>setDescripcion(e.target.value)} 
+                  className="w-full border-2 border-black p-4 rounded-none focus:outline-none focus:border-yellow-400 font-bold text-xs" 
+                  placeholder="Escribe que se llevó..." 
+                  rows={2}
+                />
+              </div>
+
               <div className="bg-gray-50 p-4 border-2 border-black">
-                <label className="block text-[10px] font-black uppercase tracking-widest text-black mb-2">Monto de la Deuda (USD)</label>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-black mb-2">Monto a Fiar (USD)</label>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-gray-400">$</span>
-                  <input required type="number" step="0.01" min="0" value={montoUSD} onChange={e=>setMontoUSD(e.target.value)} className="w-full pl-10 pr-4 py-4 border-2 border-black rounded-none focus:outline-none focus:border-red-600 font-mono font-bold text-lg" placeholder="0.00" />
+                  <input required type="number" step="0.01" min="0.01" value={montoUSD} onChange={e=>setMontoUSD(e.target.value)} className="w-full pl-10 pr-4 py-4 border-2 border-black rounded-none focus:outline-none focus:border-red-600 font-mono font-bold text-lg" placeholder="0.00" />
                 </div>
                 <div className="text-[10px] font-mono text-gray-500 mt-3 uppercase tracking-widest flex justify-between border-t border-dashed border-gray-300 pt-3">
-                  <span>Equivalente:</span>
+                  <span>En Bolívares:</span>
                   <span className="font-black text-black">{formatBs((Number(montoUSD)||0) * tasaDolar)}</span>
                 </div>
               </div>
               <div className="pt-4 flex border-t-2 border-black -mx-6 -mb-6">
                 <button type="button" onClick={() => setModalAbierto(false)} className="w-1/2 py-4 font-black text-black uppercase tracking-widest hover:bg-gray-100 border-r-2 border-black">Cancelar</button>
-                <button type="submit" className="w-1/2 py-4 font-black bg-yellow-400 text-black uppercase tracking-widest hover:bg-black hover:text-white transition-colors">Registrar</button>
+                <button type="submit" className="w-1/2 py-4 font-black bg-yellow-400 text-black uppercase tracking-widest hover:bg-black hover:text-white transition-colors">Guardar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {modalAbono.abierto && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+          <div className="bg-white border-4 border-black shadow-[8px_8px_0px_rgba(0,0,0,1)] w-full max-w-md overflow-hidden relative animate-in zoom-in-95 duration-200">
+            <button onClick={() => setModalAbono({ ...modalAbono, abierto: false })} className="absolute top-4 right-4 text-black hover:text-red-600 z-10 transition-colors">
+              <X size={24} />
+            </button>
+            <div className="p-6 border-b-2 border-black bg-yellow-400">
+              <h2 className="font-black text-xl uppercase tracking-widest mr-6">Registrar Abono</h2>
+            </div>
+            <form onSubmit={abonarDeuda} className="p-6 space-y-6">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">Cliente</p>
+                <p className="text-xl font-black text-black">{modalAbono.cliente}</p>
+                <p className="text-[10px] font-mono text-gray-500 uppercase tracking-widest mt-1">Deuda pendiente: <span className="text-red-600 font-bold">{formatUSD(modalAbono.deuda)}</span></p>
+              </div>
+              
+              <div className="bg-gray-50 p-4 border-2 border-black">
+                <label className="block text-[10px] font-black uppercase tracking-widest text-black mb-2">Monto a Abonar (USD)</label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-gray-400">$</span>
+                  <input 
+                    required 
+                    type="number" 
+                    step="0.01" 
+                    min="0.01" 
+                    max={modalAbono.deuda}
+                    value={montoAbono} 
+                    onChange={e=>setMontoAbono(e.target.value)} 
+                    className="w-full pl-10 pr-4 py-4 border-2 border-black rounded-none focus:outline-none focus:border-green-600 font-mono font-bold text-lg" 
+                    placeholder="0.00" 
+                  />
+                </div>
+                <div className="text-[10px] font-mono text-gray-500 mt-3 uppercase tracking-widest flex justify-between border-t border-dashed border-gray-300 pt-3">
+                  <span>Equivalente BS:</span>
+                  <span className="font-black text-black">{formatBs((Number(montoAbono)||0) * tasaDolar)}</span>
+                </div>
+              </div>
+
+              <div className="pt-4 flex border-t-2 border-black -mx-6 -mb-6">
+                <button type="button" onClick={() => setModalAbono({ ...modalAbono, abierto: false })} className="w-1/2 py-4 font-black text-black uppercase tracking-widest hover:bg-gray-100 border-r-2 border-black">Cancelar</button>
+                <button type="submit" className="w-1/2 py-4 font-black bg-black text-white uppercase tracking-widest hover:bg-yellow-400 hover:text-black transition-all">Confirmar Abono</button>
               </div>
             </form>
           </div>

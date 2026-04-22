@@ -26,8 +26,8 @@ export default function Ajustes() {
       if (docSnap.exists()) {
         await updateDoc(ref, { tasa_dolar: Number(nuevaTasa) });
       } else {
-        // En caso de que no exista aún (first run para Admin)
-        if (role === 'admin') {
+        // En caso de que no exista aún
+        if (role === 'admin' || role === 'superadmin' || role === 'cajero') {
           await setDoc(ref, { tasa_dolar: Number(nuevaTasa) });
         } else {
           alert("El documento de configuración no existe y no tienes permisos para crearlo.");
@@ -43,7 +43,7 @@ export default function Ajustes() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-white max-w-4xl mx-auto w-full border-x-2 border-black">
+    <div className="flex flex-col h-full bg-white max-w-4xl mx-auto w-full border-x-2 border-black overflow-y-auto pb-24">
       <div className="p-6 border-b-2 border-black flex items-center gap-3 bg-gray-50">
         <Settings size={32} />
         <div>
