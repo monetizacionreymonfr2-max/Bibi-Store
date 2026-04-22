@@ -1,34 +1,24 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { db, storage } from '../lib/firebase';
+import React, { useState, useEffect } from 'react';
+import { db } from '../lib/firebase';
 import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useConfig } from '../contexts/ConfigContext';
-import { Settings, Save, Upload, Image as ImageIcon } from 'lucide-react';
+import { Settings, Save } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
 export default function Ajustes() {
-  const { tasaDolar, logoUrl } = useConfig();
+  const { tasaDolar } = useConfig();
   const { role } = useAuth();
   const [nuevaTasa, setNuevaTasa] = useState('');
-  const [nuevoLogoUrl, setNuevoLogoUrl] = useState('');
   const [guardando, setGuardando] = useState(false);
-  const [subiendoLogo, setSubiendoLogo] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (tasaDolar) {
       setNuevaTasa(tasaDolar.toString());
     }
-    if (logoUrl) {
-      setNuevoLogoUrl(logoUrl);
-    } else {
-      // Pre-fill with the link the user provided
-      setNuevoLogoUrl("https://files.fm/u/nx6fjyav4y");
-    }
-  }, [tasaDolar, logoUrl]);
+  }, [tasaDolar]);
 
-  const guardarTasa = async (e: React.FormEvent) => {
+  const guardarAjustes = async (e: React.FormEvent) => {
     e.preventDefault();
     setGuardando(true);
     const loadingToast = toast.loading("Actualizando ajustes...");
@@ -36,8 +26,7 @@ export default function Ajustes() {
       const ref = doc(db, 'configuracion', 'general');
       const docSnap = await getDoc(ref);
       const data = { 
-        tasa_dolar: Number(nuevaTasa),
-        logo_url: nuevoLogoUrl
+        tasa_dolar: Number(nuevaTasa)
       };
 
       if (docSnap.exists()) {
@@ -54,55 +43,6 @@ export default function Ajustes() {
     }
   };
 
-  const manejarSubidaLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!navigator.onLine) {
-      toast.error("No hay conexión a internet para subir el logo.");
-      return;
-    }
-
-    setSubiendoLogo(true);
-    const loadingToast = toast.loading("Subiendo logo... (esto puede tardar)");
-    
-    // Safety timeout for upload
-    const uploadTimeout = setTimeout(() => {
-      setSubiendoLogo(false);
-      toast.error("La subida tardó demasiado. Verifique su conexión.", { id: loadingToast });
-    }, 20000);
-
-    try {
-      console.log("Iniciando subida de logo:", file.name, file.size);
-      // Path simplificado y uso de metadata para evitar problemas
-      const storageRef = ref(storage, `config/business_logo_${Date.now()}`);
-      
-      const snapshot = await uploadBytes(storageRef, file, {
-        contentType: file.type
-      });
-      
-      console.log("Snapshot de subida obtenido, obteniendo URL...");
-      const url = await getDownloadURL(snapshot.ref);
-      
-      console.log("URL de logo generada:", url);
-      setNuevoLogoUrl(url);
-      clearTimeout(uploadTimeout);
-      toast.success("Logo cargado. Presione 'Actualizar' para guardar cambios.", { id: loadingToast });
-    } catch (err) {
-      clearTimeout(uploadTimeout);
-      console.error("Error detallado en subida de logo:", err);
-      const errorMsg = err instanceof Error ? err.message : "Error desconocido";
-      
-      if (errorMsg.includes("storage/unauthorized")) {
-        toast.error("Error: Sin permisos para subir a Storage. Configure las reglas.", { id: loadingToast, duration: 6000 });
-      } else {
-        toast.error("Error al subir logo: " + errorMsg, { id: loadingToast });
-      }
-    } finally {
-      setSubiendoLogo(false);
-    }
-  };
-
   return (
     <div className="flex flex-col h-full bg-white max-w-4xl mx-auto w-full border-x-2 border-black overflow-y-auto pb-24">
       <div className="p-6 border-b-2 border-black flex items-center gap-3 bg-gray-50">
@@ -114,73 +54,7 @@ export default function Ajustes() {
       </div>
 
       <div className="p-6 space-y-8 flex-1 overflow-y-auto">
-        <form onSubmit={guardarTasa} className="space-y-6">
-          <section className="bg-white border-4 border-black p-6 shadow-[8px_8px_0px_rgba(0,0,0,1)] relative">
-            <h2 className="text-xl font-extrabold text-black mb-4 uppercase tracking-tight">Identidad Visual</h2>
-            
-            <div className="flex flex-col md:flex-row gap-6 items-center md:items-start text-center md:text-left">
-              <div className="w-32 h-32 border-4 border-black bg-gray-50 flex items-center justify-center overflow-hidden shrink-0 relative group">
-                {nuevoLogoUrl ? (
-                  <img src={nuevoLogoUrl} alt="Logo Preview" className="w-full h-full object-contain" />
-                ) : (
-                  <ImageIcon size={48} className="text-gray-300" />
-                )}
-                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-2">
-                  <span className="text-[10px] font-bold text-white uppercase text-center">Cambiar Imagen</span>
-                </div>
-              </div>
-              
-              <div className="flex-1 space-y-4">
-                <div>
-                  <h3 className="text-sm font-black uppercase tracking-widest text-black">Logo del Negocio</h3>
-                  <p className="text-[10px] font-mono text-gray-500 uppercase tracking-widest mt-1">
-                    Sube una imagen o pega un enlace directo (URL).
-                  </p>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="flex flex-wrap gap-2 justify-center md:justify-start">
-                    <input 
-                      type="file" 
-                      ref={fileInputRef} 
-                      className="hidden" 
-                      accept="image/*"
-                      onChange={manejarSubidaLogo}
-                    />
-                    <button 
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={subiendoLogo}
-                      className="bg-white border-2 border-black px-4 py-2 text-xs font-black uppercase flex items-center gap-2 hover:bg-black hover:text-white transition-all disabled:opacity-50"
-                    >
-                      <Upload size={14} /> {subiendoLogo ? 'Subiendo...' : 'Subir Archivo'}
-                    </button>
-                    {nuevoLogoUrl && (
-                      <button 
-                        type="button" 
-                        onClick={() => setNuevoLogoUrl('')}
-                        className="text-red-600 text-[10px] font-black uppercase hover:underline"
-                      >
-                        Limpiar Logo
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="relative">
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">O Pegar URL Directa</label>
-                    <input 
-                      type="url"
-                      placeholder="https://ejemplo.com/mifoto.jpg"
-                      value={nuevoLogoUrl}
-                      onChange={e => setNuevoLogoUrl(e.target.value)}
-                      className="w-full text-xs font-mono p-2 border-2 border-black bg-gray-50 focus:outline-none focus:border-yellow-400"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-
+        <form onSubmit={guardarAjustes} className="space-y-6">
           <section className="bg-white border-4 border-black p-6 shadow-[8px_8px_0px_rgba(0,0,0,1)] relative">
             <label className="block text-xl font-extrabold text-black mb-2 uppercase tracking-tight">Tasa de Cambio (VED)</label>
             <p className="text-xs font-mono text-gray-500 mb-6 uppercase tracking-widest">Esta tasa se usará en toda la aplicación para calcular los precios en Bolívares.</p>
@@ -209,7 +83,7 @@ export default function Ajustes() {
                 {guardando ? (
                   <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full" />
                 ) : (
-                  <><Save size={20} /> Actualizar</>
+                  <><Save size={20} /> Guardar</>
                 )}
               </button>
             </div>

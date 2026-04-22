@@ -8,15 +8,8 @@ import { Store, ShieldAlert, KeyRound, LogOut } from "lucide-react";
 
 export default function Login() {
   const { user, loading, role } = useAuth();
-  const { logoUrl } = useConfig();
   const [codigoIngresado, setCodigoIngresado] = useState("");
   const [verificando, setVerificando] = useState(false);
-  const [imageError, setImageError] = useState(false);
-
-  // Intentar resetear el error si cambia la URL del logo
-  useEffect(() => {
-    setImageError(false);
-  }, [logoUrl]);
 
   if (loading) {
     return <div className="h-screen w-full flex items-center justify-center bg-white"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-orange-500"></div></div>;
@@ -76,18 +69,19 @@ export default function Login() {
     <div className="min-h-screen bg-white flex flex-col justify-center py-12 sm:px-6 lg:px-8 border-[16px] border-black">
       <div className="sm:mx-auto sm:w-full sm:max-w-md flex flex-col items-center">
         <div className="flex justify-center text-black mb-4 h-32 w-32 relative">
-          {!imageError ? (
-            <img 
-              src={logoUrl || "/logo.jpg"} 
-              alt="Bibi Store Logo" 
-              className="h-full w-full object-contain"
-              onError={() => setImageError(true)}
-            />
-          ) : (
-            <div className="h-full w-full flex items-center justify-center border-4 border-dashed border-gray-200">
-              <Store className="text-black opacity-20" size={60} />
-            </div>
-          )}
+          <img 
+            src="/logo.jpg" 
+            alt="Bibi Store Logo" 
+            className="h-full w-full object-contain"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = 'https://files.fm/u/nx6fjyav4y';
+              (e.target as HTMLImageElement).onerror = () => {
+                (e.target as HTMLImageElement).style.display = 'none';
+                e.currentTarget.parentElement?.querySelector('.fallback-icon')?.classList.remove('hidden');
+              };
+            }}
+          />
+          <Store className="fallback-icon hidden text-black" size={80} />
         </div>
         <h2 className="text-center text-4xl font-black tracking-tighter text-black uppercase">
           BIBI STORE

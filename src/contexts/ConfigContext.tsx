@@ -5,14 +5,12 @@ import { useAuth } from './AuthContext';
 
 interface ConfigContextType {
   tasaDolar: number;
-  logoUrl: string | null;
 }
 
-const ConfigContext = createContext<ConfigContextType>({ tasaDolar: 0, logoUrl: null });
+const ConfigContext = createContext<ConfigContextType>({ tasaDolar: 0 });
 
 export const ConfigProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
   const [tasaDolar, setTasaDolar] = useState<number>(0);
-  const [logoUrl, setLogoUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const docRef = doc(db, 'configuracion', 'general');
@@ -20,11 +18,6 @@ export const ConfigProvider: React.FC<{children: React.ReactNode}> = ({ children
       if (docSnap.exists()) {
         const data = docSnap.data();
         setTasaDolar(data.tasa_dolar || 0);
-        // Prioritize what's in DB, but fallback to the user's provided link if empty
-        setLogoUrl(data.logo_url || "https://files.fm/u/nx6fjyav4y"); 
-      } else {
-        // If config doesn't exist yet, at least show the logo
-        setLogoUrl("https://files.fm/u/nx6fjyav4y");
       }
     }, (err) => {
       console.error("Error reading configuracion", err);
@@ -34,7 +27,7 @@ export const ConfigProvider: React.FC<{children: React.ReactNode}> = ({ children
   }, []);
 
   return (
-    <ConfigContext.Provider value={{ tasaDolar, logoUrl }}>
+    <ConfigContext.Provider value={{ tasaDolar }}>
       {children}
     </ConfigContext.Provider>
   );
