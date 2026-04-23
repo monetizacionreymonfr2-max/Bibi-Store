@@ -5,6 +5,7 @@ import { signOut } from "../lib/firebase";
 import { Store, ShoppingCart, Users, Settings, Package, LogOut, FileText, ShieldAlert, WifiOff } from "lucide-react";
 import { cn } from "../lib/utils";
 import React, { useEffect, useState } from "react";
+import BibiStoreLogo from "./BibiStoreLogo";
 
 export default function Layout() {
   const { role, user } = useAuth();
@@ -36,24 +37,16 @@ export default function Layout() {
     <div className="flex flex-col h-screen overflow-hidden bg-white">
       {/* Top Navbar */}
       <header className="bg-black text-white p-4 flex justify-between items-center shadow-lg shrink-0">
-        <div>
-          <h1 className="text-2xl font-extrabold tracking-tighter flex items-center gap-3">
-            <img 
-              src="/logo.jpg" 
-              alt="Bibi Store Logo" 
-              className="h-10 w-auto min-w-[40px] object-contain hidden sm:block bg-white rounded-md p-0.5 border border-white"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = 'https://files.fm/u/nx6fjyav4y';
-                (e.target as HTMLImageElement).onerror = () => {
-                   (e.target as HTMLImageElement).style.display = 'none';
-                   e.currentTarget.parentElement?.querySelector('.fallback-icon')?.classList.remove('hidden');
-                };
-              }}
-            />
-            <Store className="text-yellow-400 fallback-icon hidden sm:block" size={24} />
-            BIBI STORE
-          </h1>
-          <p className="text-xs text-gray-400 tracking-wide mt-0.5">Control de Inventario & Ventas</p>
+        <div className="flex items-center gap-3">
+          <div className="bg-white rounded p-1 flex items-center justify-center">
+            <BibiStoreLogo className="h-10 w-10 sm:h-12 sm:w-12" />
+          </div>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-extrabold tracking-tighter leading-none text-white">
+              BIBI STORE
+            </h1>
+            <p className="text-[10px] sm:text-xs text-gray-400 tracking-wide mt-1">Control de Inventario & Ventas</p>
+          </div>
         </div>
         
         <div className="flex items-center space-x-4 sm:space-x-6">

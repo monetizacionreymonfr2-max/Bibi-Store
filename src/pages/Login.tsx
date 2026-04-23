@@ -5,6 +5,7 @@ import { useConfig } from "../contexts/ConfigContext";
 import { signInWithGoogle, signOut, db } from "../lib/firebase";
 import { doc, getDoc, writeBatch } from "firebase/firestore";
 import { Store, ShieldAlert, KeyRound, LogOut } from "lucide-react";
+import BibiStoreLogo from "../components/BibiStoreLogo";
 
 export default function Login() {
   const { user, loading, role } = useAuth();
@@ -68,22 +69,10 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-white flex flex-col justify-center py-12 sm:px-6 lg:px-8 border-[16px] border-black">
       <div className="sm:mx-auto sm:w-full sm:max-w-md flex flex-col items-center">
-        <div className="flex justify-center text-black mb-4 h-32 w-32 relative">
-          <img 
-            src="/logo.jpg" 
-            alt="Bibi Store Logo" 
-            className="h-full w-full object-contain"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = 'https://files.fm/u/nx6fjyav4y';
-              (e.target as HTMLImageElement).onerror = () => {
-                (e.target as HTMLImageElement).style.display = 'none';
-                e.currentTarget.parentElement?.querySelector('.fallback-icon')?.classList.remove('hidden');
-              };
-            }}
-          />
-          <Store className="fallback-icon hidden text-black" size={80} />
+        <div className="flex justify-center text-black mb-4 w-32 relative">
+          <BibiStoreLogo className="h-32 w-32" />
         </div>
-        <h2 className="text-center text-4xl font-black tracking-tighter text-black uppercase">
+        <h2 className="text-center text-4xl font-black tracking-tighter text-black uppercase mt-4">
           BIBI STORE
         </h2>
         <p className="mt-2 text-center text-xs font-mono text-gray-500 uppercase tracking-widest">
