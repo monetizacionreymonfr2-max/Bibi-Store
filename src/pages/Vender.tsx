@@ -26,6 +26,7 @@ export default function Vender() {
   const [pesoProducto, setPesoProducto] = useState<Producto | null>(null);
   const [gramos, setGramos] = useState('');
   const [kilos, setKilos] = useState('');
+  const [isEditingWeight, setIsEditingWeight] = useState(false);
 
   useEffect(() => {
     // Escuchar top 100 productos para optimizar costos
@@ -66,11 +67,12 @@ export default function Vender() {
     return null;
   };
 
-  const agregarAlCarrito = (prod: Producto, weight?: number) => {
+  const agregarAlCarrito = (prod: Producto, weight?: number, replace: boolean = false) => {
     if (prod.unidad_medida === 'kg' && !weight) {
       setPesoProducto(prod);
       setGramos('');
       setKilos('');
+      setIsEditingWeight(false);
       setModalPesoOpen(true);
       return;
     }
@@ -80,7 +82,7 @@ export default function Vender() {
     setCarrito(prev => {
       const ex = prev.find(i => i.productoId === prod.id);
       if (ex) {
-        const nuevaCantidad = ex.cantidad + cantidadAAgregar;
+        const nuevaCantidad = replace ? cantidadAAgregar : ex.cantidad + cantidadAAgregar;
         if (nuevaCantidad > prod.stock) {
           toast.error("No hay suficiente stock");
           return prev;
@@ -325,7 +327,23 @@ export default function Vender() {
                           <button onClick={() => modificarCantidad(item.productoId, 1)} className="text-xl font-black text-black hover:bg-gray-100 w-8 h-8 flex items-center justify-center rounded">+</button>
                         </>
                       ) : (
-                        <span className="font-mono text-xs px-2 font-bold text-gray-500">Peso Fijo</span>
+                         <button 
+                           onClick={() => {
+                             const p = productos.find(x => x.id === item.productoId);
+                             if(p) {
+                               setPesoProducto(p);
+                               const whole = Math.floor(item.cantidad);
+                               const frac = Math.round((item.cantidad - whole) * 1000);
+                               setKilos(whole > 0 ? whole.toString() : '');
+                               setGramos(frac > 0 ? frac.toString() : '');
+                               setIsEditingWeight(true);
+                               setModalPesoOpen(true);
+                             }
+                           }}
+                           className="font-mono text-[10px] px-3 py-1 font-black uppercase tracking-widest bg-yellow-400 hover:bg-black hover:text-white transition-colors"
+                         >
+                           Editar Peso
+                         </button>
                       )}
                     </div>
                     <div className="flex items-center gap-3">
@@ -437,11 +455,11 @@ export default function Vender() {
                     toast.error("No hay suficiente en inventario");
                     return;
                   }
-                  agregarAlCarrito(pesoProducto, totalKg);
+                  agregarAlCarrito(pesoProducto, totalKg, isEditingWeight);
                 }}
                 className="w-full bg-black text-white py-4 font-black uppercase tracking-widest hover:bg-yellow-400 hover:text-black transition-all border-2 border-black"
               >
-                Añadir al Carrito
+                {isEditingWeight ? 'Actualizar Peso' : 'Añadir al Carrito'}
               </button>
             </div>
           </div>
