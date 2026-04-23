@@ -131,11 +131,10 @@ service cloud.firestore {
 
     match /productos/{productoId} {
       allow read: if isAdminOrCajero();
-      allow create: if isAdmin() && isValidId(productoId) && isValidProducto(incoming());
+      allow create: if isAdminOrCajero() && isValidId(productoId) && isValidProducto(incoming());
       
       allow update: if isValidId(productoId) && (
-        (isAdmin() && isValidProducto(incoming())) ||
-        (isCajero() && incoming().diff(existing()).affectedKeys().hasOnly(['stock']) && incoming().stock <= existing().stock)
+        (isAdminOrCajero() && isValidProducto(incoming()))
       );
       
       allow delete: if isAdmin() && isValidId(productoId);
@@ -143,7 +142,7 @@ service cloud.firestore {
 
     match /costos_productos/{productoId} {
       allow read: if isAdmin();
-      allow create: if isAdmin() && isValidId(productoId) && isValidCostoProducto(incoming()) 
+      allow create: if isAdminOrCajero() && isValidId(productoId) && isValidCostoProducto(incoming()) 
                     && existsAfter(/databases/$(database)/documents/productos/$(productoId));
       allow update: if isAdmin() && isValidId(productoId) && isValidCostoProducto(incoming())
                     && incoming().diff(existing()).affectedKeys().hasOnly(['costo_usd']);

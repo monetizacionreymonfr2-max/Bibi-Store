@@ -216,6 +216,7 @@ export default function Inventario() {
         const prodRef = doc(db, 'productos', editandoId);
         batch.update(prodRef, payloadObj);
         
+        // Cajeros can't update cost, only admins
         if (isAdmin) {
           const costoRef = doc(db, 'costos_productos', editandoId);
           batch.set(costoRef, { costo_usd: Number(costo) || 0 }, { merge: true });
@@ -224,10 +225,9 @@ export default function Inventario() {
         const newProdRef = doc(collection(db, 'productos'));
         batch.set(newProdRef, payloadObj);
         
-        if (isAdmin) {
-          const newCostoRef = doc(db, 'costos_productos', newProdRef.id);
-          batch.set(newCostoRef, { costo_usd: Number(costo) || 0 });
-        }
+        // When creating, anyone (admin or cajero) needs to set the initial cost
+        const newCostoRef = doc(db, 'costos_productos', newProdRef.id);
+        batch.set(newCostoRef, { costo_usd: Number(costo) || 0 });
       }
       
       await batch.commit();
@@ -286,7 +286,7 @@ export default function Inventario() {
               className="w-full pl-9 pr-4 py-2 border-2 border-black rounded-none focus:outline-none focus:border-yellow-500 font-mono text-xs uppercase"
             />
           </div>
-          {isAdmin && (
+          {(isAdmin || role === 'cajero') && (
             <button 
               onClick={() => abrirModal()}
               className="bg-yellow-400 text-black border-2 border-black px-4 py-2 font-bold uppercase tracking-wider text-xs hover:bg-black hover:text-white transition-all flex items-center gap-2"
@@ -322,12 +322,14 @@ export default function Inventario() {
               <div className="flex flex-col flex-1">
                 <div className="flex justify-between items-start mb-1">
                   <span className="text-[8px] font-bold text-gray-400 uppercase tracking-widest truncate max-w-[70%]">{prod.codigo_barras || 'N/A'}</span>
-                  {isAdmin && (
-                    <div className="flex gap-2">
-                       <button onClick={() => abrirModal(prod)} className="text-gray-400 hover:text-black transition-colors"><Edit2 size={12} /></button>
-                       <button onClick={() => eliminarProducto(prod.id)} className="text-gray-400 hover:text-red-500 transition-colors"><Trash2 size={12} /></button>
-                    </div>
-                  )}
+                  <div className="flex gap-2">
+                    {(isAdmin || role === 'cajero') && (
+                      <button onClick={() => abrirModal(prod)} className="text-gray-400 hover:text-black transition-colors"><Edit2 size={12} /></button>
+                    )}
+                    {isAdmin && (
+                      <button onClick={() => eliminarProducto(prod.id)} className="text-gray-400 hover:text-red-500 transition-colors"><Trash2 size={12} /></button>
+                    )}
+                  </div>
                 </div>
                 <h3 className="font-extrabold text-sm md:text-base leading-tight mb-2 line-clamp-2 min-h-[2.5rem]">{prod.nombre}</h3>
                 
@@ -450,17 +452,17 @@ export default function Inventario() {
                     <label className="block text-[8px] font-black uppercase tracking-widest mb-1 text-orange-600">
                       {unidadMedida === 'kg' ? 'Costo por Kg' : 'Costo Unitario'} (USD)
                     </label>
-                    <input required type="number" step="0.01" min="0" value={costo} onChange={e=>handleCostoChange(e.target.value)} className="w-full border-2 border-orange-500 p-3 font-mono font-bold bg-orange-50 text-sm" />
+                    <input required type="number" step="0.01" min="0" value={costo} onChange={e=>handleCostoChange(e.target.value)} disabled={!isAdmin && !!editandoId} className="w-full border-2 border-orange-500 p-3 font-mono font-bold bg-orange-50 text-sm disabled:opacity-50" />
                   </div>
                   <div>
                     <label className="block text-[8px] font-black uppercase tracking-widest mb-1 text-blue-600">Margen %</label>
-                    <input type="number" step="0.01" value={margen} onChange={e=>handleMargenChange(e.target.value)} className="w-full border-2 border-blue-500 p-3 font-mono font-bold bg-blue-50 text-sm" placeholder="GAN" />
+                    <input type="number" step="0.01" value={margen} onChange={e=>handleMargenChange(e.target.value)} disabled={!isAdmin && !!editandoId} className="w-full border-2 border-blue-500 p-3 font-mono font-bold bg-blue-50 text-sm disabled:opacity-50" placeholder="GAN" />
                   </div>
                   <div className="col-span-2 md:col-span-1">
                     <label className="block text-[8px] font-black uppercase tracking-widest mb-1 text-green-600">
                       {unidadMedida === 'kg' ? 'Precio por Kg' : 'Precio Unitario'} (USD)
                     </label>
-                    <input required type="number" step="0.01" min="0" value={precio} onChange={e=>handlePrecioChange(e.target.value)} className="w-full border-2 border-green-500 p-3 font-mono font-bold bg-green-50 text-sm" />
+                    <input required type="number" step="0.01" min="0" value={precio} onChange={e=>handlePrecioChange(e.target.value)} disabled={!isAdmin && !!editandoId} className="w-full border-2 border-green-500 p-3 font-mono font-bold bg-green-50 text-sm disabled:opacity-50" />
                   </div>
                 </div>
 
