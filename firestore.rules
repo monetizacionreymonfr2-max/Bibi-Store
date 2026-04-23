@@ -72,10 +72,9 @@ service cloud.firestore {
     }
 
     function isValidProducto(data) {
-      return data.keys().hasAll(['nombre', 'precio_usd', 'stock'])
+      return data.keys().hasAll(['nombre', 'precio_usd'])
              && data.nombre is string 
-             && data.precio_usd is number
-             && data.stock is number;
+             && data.precio_usd is number;
     }
 
     function isValidCostoProducto(data) {
@@ -132,20 +131,14 @@ service cloud.firestore {
     match /productos/{productoId} {
       allow read: if isAdminOrCajero();
       allow create: if isAdminOrCajero() && isValidId(productoId) && isValidProducto(incoming());
-      
-      allow update: if isValidId(productoId) && (
-        (isAdminOrCajero() && isValidProducto(incoming()))
-      );
-      
+      allow update: if isAdminOrCajero() && isValidId(productoId);
       allow delete: if isAdmin() && isValidId(productoId);
     }
 
     match /costos_productos/{productoId} {
       allow read: if isAdmin();
-      allow create: if isAdminOrCajero() && isValidId(productoId) && isValidCostoProducto(incoming()) 
-                    && existsAfter(/databases/$(database)/documents/productos/$(productoId));
-      allow update: if isAdmin() && isValidId(productoId) && isValidCostoProducto(incoming())
-                    && incoming().diff(existing()).affectedKeys().hasOnly(['costo_usd']);
+      allow create: if isAdminOrCajero() && isValidId(productoId) && isValidCostoProducto(incoming());
+      allow update: if isAdmin() && isValidId(productoId);
       allow delete: if isAdmin() && isValidId(productoId);
     }
 
