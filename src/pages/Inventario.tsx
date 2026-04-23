@@ -4,9 +4,9 @@ import { collection, onSnapshot, doc, deleteDoc, writeBatch, query, limit, where
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfig } from '../contexts/ConfigContext';
-import { Producto } from '../types';
+import { Producto, CATEGORIAS_PRODUCTO } from '../types';
 import { formatUSD, formatBs, cn } from '../lib/utils';
-import { Plus, Edit2, Trash2, Search, X, Scan } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, X, Scan, Filter } from 'lucide-react';
 import Scanner from '../components/Scanner';
 import toast from 'react-hot-toast';
 
@@ -28,6 +28,7 @@ export default function Inventario() {
   const [margen, setMargen] = useState('');
   const [stock, setStock] = useState('');
   const [unidadMedida, setUnidadMedida] = useState<'unid' | 'kg'>('unid');
+  const [categoria, setCategoria] = useState('');
   const [codigo, setCodigo] = useState('');
   const [imagenUrl, setImagenUrl] = useState('');
   const [imagenArchivo, setImagenArchivo] = useState<File | null>(null);
@@ -174,6 +175,7 @@ export default function Inventario() {
       setCosto(prod.costo_usd?.toString() || '');
       setStock(prod.stock.toString());
       setUnidadMedida(prod.unidad_medida || 'unid');
+      setCategoria(prod.categoria || '');
       setCodigo(prod.codigo_barras);
       setImagenUrl(prod.imagen_url || '');
 
@@ -189,6 +191,7 @@ export default function Inventario() {
       setCosto('');
       setStock('');
       setUnidadMedida('unid');
+      setCategoria('');
       setCodigo('');
       setImagenUrl('');
       setMargen('');
@@ -209,6 +212,7 @@ export default function Inventario() {
         precio_usd: Number(precio) || 0,
         stock: Number(stock) || 0,
         unidad_medida: unidadMedida,
+        categoria: categoria || 'Sin Categoría',
         codigo_barras: (codigo || "N/A").trim(),
         imagen_url: imagenUrl || ""
       };
@@ -426,6 +430,21 @@ export default function Inventario() {
                       Deli / Kg
                     </button>
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-widest mb-1">Categoría</label>
+                  <select 
+                    value={categoria} 
+                    onChange={e => setCategoria(e.target.value)}
+                    required
+                    className="w-full border-2 border-black p-3 font-bold text-sm bg-white"
+                  >
+                    <option value="" disabled>Seleccione una categoría...</option>
+                    {CATEGORIAS_PRODUCTO.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>

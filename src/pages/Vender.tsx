@@ -95,7 +95,8 @@ export default function Vender() {
         cantidad: cantidadAAgregar, 
         precio_unitario_usd: prod.precio_usd, 
         subtotal_usd: cantidadAAgregar * prod.precio_usd,
-        unidad_medida: prod.unidad_medida 
+        unidad_medida: prod.unidad_medida,
+        categoria: prod.categoria || 'Sin Categoría'
       }];
     });
     setModalPesoOpen(false);
@@ -136,7 +137,8 @@ export default function Vender() {
           productoId: i.productoId,
           nombre: i.nombre,
           cantidad: i.cantidad,
-          precio_unitario_usd: i.precio_unitario_usd
+          precio_unitario_usd: i.precio_unitario_usd,
+          categoria: i.categoria || 'Sin Categoría'
         }))
       });
 

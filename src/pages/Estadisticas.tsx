@@ -2,10 +2,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, query, orderBy, deleteDoc, doc } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
-import { Venta } from '../types';
+import { Venta, CATEGORIAS_PRODUCTO } from '../types';
 import { formatUSD, formatBs, cn } from '../lib/utils';
 import { useConfig } from '../contexts/ConfigContext';
-import { BarChart, DollarSign, TrendingUp, PackageSearch, Download, ChevronDown, ChevronUp, FileDown, Trash2 } from 'lucide-react';
+import { BarChart, DollarSign, TrendingUp, PackageSearch, Download, ChevronDown, ChevronUp, FileDown, Trash2, PieChart } from 'lucide-react';
 import { format } from 'date-fns';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -44,10 +44,16 @@ export default function Estadisticas() {
   }, [isAdmin]);
 
   // Compute metrics
-  const stats = useMemo(() => {
+  const { globalStats, statsPorCategoria } = useMemo(() => {
     let ingresosBrutos = 0;
     let gananciaNeta = 0;
     let productosVendidos = 0;
+
+    const cats: Record<string, { ingresosBrutos: number, gananciaNeta: number, productosVendidos: number }> = {};
+    CATEGORIAS_PRODUCTO.forEach(c => {
+      cats[c] = { ingresosBrutos: 0, gananciaNeta: 0, productosVendidos: 0 };
+    });
+    cats['Sin Categoría'] = { ingresosBrutos: 0, gananciaNeta: 0, productosVendidos: 0 };
 
     for (const v of ventas) {
       ingresosBrutos += v.total_usd;
@@ -57,11 +63,23 @@ export default function Estadisticas() {
           const costoUnidad = costos[item.productoId] || 0;
           const gananciaThisItem = (item.precio_unitario_usd - costoUnidad) * item.cantidad;
           gananciaNeta += gananciaThisItem;
+
+          const cat = item.categoria || 'Sin Categoría';
+          if (!cats[cat]) {
+             cats[cat] = { ingresosBrutos: 0, gananciaNeta: 0, productosVendidos: 0 };
+          }
+          const subtotalItem = item.precio_unitario_usd * item.cantidad;
+          cats[cat].ingresosBrutos += subtotalItem;
+          cats[cat].productosVendidos += item.cantidad;
+          cats[cat].gananciaNeta += gananciaThisItem;
         }
       }
     }
 
-    return { ingresosBrutos, gananciaNeta, productosVendidos };
+    return { 
+      globalStats: { ingresosBrutos, gananciaNeta, productosVendidos },
+      statsPorCategoria: cats 
+    };
   }, [ventas, costos]);
 
   const eliminarVenta = async (id: string) => {
@@ -139,7 +157,7 @@ export default function Estadisticas() {
       <div className="flex items-center gap-3 p-6 border-b-2 border-black bg-gray-50">
         <BarChart size={32} className="text-black" />
         <div>
-          <h1 className="text-2xl font-black uppercase tracking-widest text-black">Reportes Globales</h1>
+          <h1 className="text-2xl font-black uppercase tracking-widest text-black">Estadística Global</h1>
           <p className="text-[10px] font-mono text-gray-500 uppercase tracking-widest mt-1">Visión general del desempeño del negocio.</p>
         </div>
       </div>
@@ -151,10 +169,10 @@ export default function Estadisticas() {
             <p className="text-xs font-black uppercase tracking-widest text-black">Ingresos Brutos</p>
             <DollarSign size={20} className="text-green-600" />
           </div>
-          <p className="text-3xl font-black text-black leading-none mb-1">{formatUSD(stats.ingresosBrutos)}</p>
+          <p className="text-3xl font-black text-black leading-none mb-1">{formatUSD(globalStats.ingresosBrutos)}</p>
           <div className="mt-2 pt-2 border-t border-gray-100">
             <p className="text-sm font-bold text-gray-500 font-mono italic">
-              {formatBs(stats.ingresosBrutos * tasaDolar)}
+              {formatBs(globalStats.ingresosBrutos * tasaDolar)}
             </p>
           </div>
         </div>
@@ -165,10 +183,10 @@ export default function Estadisticas() {
             <p className="text-xs font-black uppercase tracking-widest text-black">Ganancia Neta</p>
             <TrendingUp size={20} className="text-yellow-500" />
           </div>
-          <p className="text-3xl font-black text-black leading-none mb-1">{formatUSD(stats.gananciaNeta)}</p>
+          <p className="text-3xl font-black text-black leading-none mb-1">{formatUSD(globalStats.gananciaNeta)}</p>
           <div className="mt-2 pt-2 border-t border-gray-100">
             <p className="text-sm font-bold text-gray-500 font-mono italic">
-              {formatBs(stats.gananciaNeta * tasaDolar)}
+              {formatBs(globalStats.gananciaNeta * tasaDolar)}
             </p>
           </div>
         </div>
@@ -179,8 +197,33 @@ export default function Estadisticas() {
             <p className="text-xs font-black uppercase tracking-widest text-black">Unidades</p>
             <PackageSearch size={20} className="text-black" />
           </div>
-          <p className="text-3xl font-black text-black leading-none mb-1">{stats.productosVendidos}</p>
+          <p className="text-3xl font-black text-black leading-none mb-1">{globalStats.productosVendidos}</p>
           <p className="text-[10px] text-gray-500 font-mono uppercase tracking-widest">Despachadas</p>
+        </div>
+      </div>
+
+      <div className="bg-gray-50 border-y-2 border-black px-6 py-8 mt-4">
+        <div className="flex items-center gap-2 mb-6">
+          <PieChart size={24} className="text-black" />
+          <h2 className="text-xl font-black uppercase tracking-widest text-black">Ventas por Categoría</h2>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          {[...CATEGORIAS_PRODUCTO, 'Sin Categoría'].map(cat => {
+            const val = statsPorCategoria[cat];
+            if (!val) return null;
+            if (cat === 'Sin Categoría' && val.productosVendidos === 0) return null;
+            
+            const isZero = val.productosVendidos === 0;
+
+            return (
+              <div key={cat} className={cn("bg-white border-2 border-black p-4 flex flex-col justify-between shadow-[4px_4px_0px_rgba(0,0,0,1)]", isZero && "opacity-50 blur-[0.5px] hover:blur-none hover:opacity-100 transition-all")}>
+                <span className="text-[10px] font-black uppercase tracking-widest truncate bg-yellow-400 border border-black px-2 py-0.5 self-start mb-2">{cat}</span>
+                <span className="text-xl font-black mt-2 leading-none">{formatUSD(val.ingresosBrutos)}</span>
+                <span className="text-[10px] text-gray-500 font-mono mt-1">{val.productosVendidos} vendidas</span>
+                <span className="text-[10px] text-green-600 font-bold font-mono mt-1">+ {formatUSD(val.gananciaNeta)} Gan.</span>
+              </div>
+            );
+          })}
         </div>
       </div>
 

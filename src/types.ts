@@ -1,3 +1,18 @@
+export const CATEGORIAS_PRODUCTO = [
+  'Víveres', 
+  'Quincalleria', 
+  'Papelería', 
+  'Higiene Personal', 
+  'Farmacia', 
+  'Limpieza', 
+  'Panadería', 
+  'Chucherías', 
+  'Charcutería', 
+  'Especies y Condimentos', 
+  'Heladería y Bebidas', 
+  'Vicios'
+];
+
 export interface Producto {
   id: string;
   nombre: string;
@@ -6,6 +21,7 @@ export interface Producto {
   codigo_barras: string;
   imagen_url?: string;
   unidad_medida?: 'unid' | 'kg';
+  categoria?: string;
 }
 
 export interface CostoProducto {
@@ -19,6 +35,7 @@ export interface VentaItem {
   precio_unitario_usd: number;
   subtotal_usd: number;
   unidad_medida?: 'unid' | 'kg';
+  categoria?: string;
 }
 
 export interface Venta {
@@ -32,6 +49,7 @@ export interface Venta {
     nombre?: string;
     cantidad: number;
     precio_unitario_usd: number;
+    categoria?: string;
   }>;
   ganancia_estimada_usd?: number;
   metodo_pago?: string; // e.g. "Efectivo", "Pago Móvil", "Punto"
