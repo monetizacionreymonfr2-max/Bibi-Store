@@ -198,36 +198,19 @@ export default function Inventario() {
 
   const guardarProducto = async (e: React.FormEvent) => {
     e.preventDefault();
-    const loadingToast = toast.loading(imagenArchivo ? "Subiendo foto optimizada..." : "Guardando producto...");
+    const loadingToast = toast.loading("Guardando producto...");
     setGuardando(true);
     
     try {
-      let finalImagenUrl = imagenUrl;
-
-      // Subir a Firebase Storage si hay un archivo nuevo
-      if (imagenArchivo) {
-        if (!navigator.onLine) {
-          toast.error("Sin internet: La foto NO se guardará.", { duration: 3000 });
-        } else {
-          try {
-            const storageRef = ref(storage, `productos/${Date.now()}_${imagenArchivo.name}`);
-            const snapshot = await uploadBytes(storageRef, imagenArchivo);
-            finalImagenUrl = await getDownloadURL(snapshot.ref);
-            toast.loading("Guardando datos...", { id: loadingToast });
-          } catch (storageError) {
-            console.error("Storage upload failed:", storageError);
-            toast.error("Error al subir imagen. Guardando sin foto.", { duration: 3000, id: loadingToast });
-          }
-        }
-      }
-
+      // finalImagenUrl already holds the base64 compressed data URL from handlePhotoUpload
+      // because we called canvas.toDataURL()
       const payloadObj = {
         nombre: nombre.trim(),
         precio_usd: Number(precio) || 0,
         stock: Number(stock) || 0,
         unidad_medida: unidadMedida,
         codigo_barras: (codigo || "N/A").trim(),
-        imagen_url: finalImagenUrl || ""
+        imagen_url: imagenUrl || ""
       };
       
       const batch = writeBatch(db);
@@ -236,31 +219,34 @@ export default function Inventario() {
         const prodRef = doc(db, 'productos', editandoId);
         batch.update(prodRef, payloadObj);
         
-        // Cajeros can't update cost, only admins
-        if (isAdmin) {
+        if (isAdmin || role === 'cajero') {
           const costoRef = doc(db, 'costos_productos', editandoId);
-          batch.set(costoRef, { costo_usd: Number(costo) || 0 }, { merge: true });
+          // Only admins can see cost, but to play safe with permissions we let the backend handle it
+          // Wait, the rules say only admin can update cost.
+          if (isAdmin) {
+             batch.set(costoRef, { costo_usd: Number(costo) || 0 }, { merge: true });
+          }
         }
       } else {
         const newProdRef = doc(collection(db, 'productos'));
         batch.set(newProdRef, payloadObj);
         
-        // When creating, anyone (admin or cajero) needs to set the initial cost
         const newCostoRef = doc(db, 'costos_productos', newProdRef.id);
         batch.set(newCostoRef, { costo_usd: Number(costo) || 0 });
       }
       
-      batch.commit().then(() => {
-        toast.success("Opciones sincronizadas.", { id: loadingToast, duration: 2000 });
-      }).catch(err => {
-        console.error("Batch fallback:", err);
-        toast.error("Error de conexión: " + err.message, { id: loadingToast, duration: 5000 });
-      });
+      await batch.commit();
       
+      toast.success("Producto guardado correctamente", { id: loadingToast, duration: 2000 });
       setModalAbierto(false);
     } catch (err) {
       console.error("Error detallado al guardar:", err);
-      toast.error("Error inesperado al guardar.", { id: loadingToast, duration: 5000 });
+      if (err instanceof Error && err.message.includes("offline")) {
+        toast.success("Guardado local (se sincronizará al conectar)", { id: loadingToast, duration: 4000 });
+        setModalAbierto(false);
+      } else {
+        toast.error("Error de permisos o conexión.", { id: loadingToast, duration: 5000 });
+      }
     } finally {
       setGuardando(false);
     }
