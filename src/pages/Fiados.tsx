@@ -171,9 +171,27 @@ export default function Fiados() {
                   <p className="text-[10px] text-gray-500 font-mono italic mb-4 line-clamp-2">🛒 {f.descripcion}</p>
                 )}
                 
-                <div className="mt-auto border-t-2 border-dashed border-gray-300 pt-4 flex flex-col gap-1 items-end">
-                  <div className="font-black text-2xl mb-0 leading-none">{formatUSD(f.monto_usd)}</div>
-                  <div className="text-[10px] text-gray-400 font-mono mb-4">{formatBs(f.monto_usd * tasaDolar).replace('Bs. ', '')} VED</div>
+                <div className="mt-auto border-t-2 border-dashed border-gray-300 pt-4 flex flex-col gap-4">
+                  <div className="flex justify-between items-center">
+                    {f.estado === 'pagado' ? <div></div> : (
+                      <button 
+                        onClick={() => {
+                          setCliente(f.cliente);
+                          setMontoUSD('');
+                          setDescripcion('');
+                          setModalAbierto(true);
+                        }}
+                        className="flex items-center gap-1 bg-white text-black px-3 py-1.5 border-2 border-black font-black uppercase text-[10px] tracking-widest hover:bg-black hover:text-white transition-colors shadow-[2px_2px_0px_rgba(0,0,0,1)]"
+                        title="Sumar más deuda a este cliente"
+                      >
+                        <Plus size={12} /> AÑADIR
+                      </button>
+                    )}
+                    <div className="flex flex-col items-end">
+                      <div className="font-black text-2xl mb-0 leading-none">{formatUSD(f.monto_usd)}</div>
+                      <div className="text-[10px] text-gray-400 font-mono">{formatBs(f.monto_usd * tasaDolar).replace('Bs. ', '')} VED</div>
+                    </div>
+                  </div>
                   
                   {f.estado === 'pendiente' && (
                     <div className="w-full flex flex-col gap-2">
