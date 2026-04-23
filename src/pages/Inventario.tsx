@@ -69,15 +69,44 @@ export default function Inventario() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Use for preview
     const reader = new FileReader();
     reader.onload = (event) => {
-      setImagenUrl(event.target?.result as string);
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 600;
+        const MAX_HEIGHT = 600;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        
+        canvas.toBlob((blob) => {
+          if(blob) {
+            const compressedFile = new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() });
+            setImagenArchivo(compressedFile);
+            setImagenUrl(canvas.toDataURL('image/jpeg', 0.8));
+          }
+        }, 'image/jpeg', 0.8);
+      };
+      img.src = event.target?.result as string;
     };
     reader.readAsDataURL(file);
-    
-    // Store for upload
-    setImagenArchivo(file);
   };
 
   useEffect(() => {
@@ -169,16 +198,9 @@ export default function Inventario() {
 
   const guardarProducto = async (e: React.FormEvent) => {
     e.preventDefault();
-    const loadingToast = toast.loading("Guardando producto...");
-    
-    // Safety timeout to prevent infinite hanging
-    const timeoutId = setTimeout(() => {
-      setModalAbierto(false);
-      toast.error("La operación está tardando demasiado. Verificando estado local...", { id: loadingToast, duration: 4000 });
-      setGuardando(false);
-    }, 15000);
-
+    const loadingToast = toast.loading(imagenArchivo ? "Subiendo foto optimizada..." : "Guardando producto...");
     setGuardando(true);
+    
     try {
       let finalImagenUrl = imagenUrl;
 
@@ -188,14 +210,13 @@ export default function Inventario() {
           toast.error("Sin internet: La foto NO se guardará.", { duration: 3000 });
         } else {
           try {
-            console.log("Iniciando subida de imagen...");
             const storageRef = ref(storage, `productos/${Date.now()}_${imagenArchivo.name}`);
             const snapshot = await uploadBytes(storageRef, imagenArchivo);
             finalImagenUrl = await getDownloadURL(snapshot.ref);
-            console.log("Imagen subida con éxito:", finalImagenUrl);
+            toast.loading("Guardando datos...", { id: loadingToast });
           } catch (storageError) {
             console.error("Storage upload failed:", storageError);
-            toast.error("Error al subir imagen, guardando solo texto...", { duration: 3000 });
+            toast.error("Error al subir imagen. Guardando sin foto.", { duration: 3000, id: loadingToast });
           }
         }
       }
@@ -209,7 +230,6 @@ export default function Inventario() {
         imagen_url: finalImagenUrl || ""
       };
       
-      console.log("Ejecutando batch commit con payload:", payloadObj);
       const batch = writeBatch(db);
 
       if (editandoId) {
@@ -230,22 +250,17 @@ export default function Inventario() {
         batch.set(newCostoRef, { costo_usd: Number(costo) || 0 });
       }
       
-      await batch.commit();
-      console.log("Batch commit completado");
-      clearTimeout(timeoutId);
-      setModalAbierto(false);
-      toast.success("Producto guardado correctamente", { id: loadingToast });
-    } catch (err) {
-      clearTimeout(timeoutId);
-      console.error("Error detallado al guardar:", err);
-      const errorMsg = err instanceof Error ? err.message : "Error desconocido";
+      batch.commit().then(() => {
+        toast.success("Opciones sincronizadas.", { id: loadingToast, duration: 2000 });
+      }).catch(err => {
+        console.error("Batch fallback:", err);
+        toast.error("Error de conexión: " + err.message, { id: loadingToast, duration: 5000 });
+      });
       
-      if (errorMsg.includes("offline") || !navigator.onLine) {
-        setModalAbierto(false);
-        toast.success("Guardado local (se sincronizará al conectar)", { id: loadingToast });
-      } else {
-        toast.error("Error Firebase: " + errorMsg, { id: loadingToast, duration: 5000 });
-      }
+      setModalAbierto(false);
+    } catch (err) {
+      console.error("Error detallado al guardar:", err);
+      toast.error("Error inesperado al guardar.", { id: loadingToast, duration: 5000 });
     } finally {
       setGuardando(false);
     }
