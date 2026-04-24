@@ -6,9 +6,11 @@ import { useAuth } from '../contexts/AuthContext';
 import { useConfig } from '../contexts/ConfigContext';
 import { Producto, CATEGORIAS_PRODUCTO } from '../types';
 import { formatUSD, formatBs, cn } from '../lib/utils';
-import { Plus, Edit2, Trash2, Search, X, Scan, Filter } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, X, Scan, Filter, FileDown } from 'lucide-react';
 import Scanner from '../components/Scanner';
 import toast from 'react-hot-toast';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 export default function Inventario() {
   const { role } = useAuth();
@@ -269,6 +271,60 @@ export default function Inventario() {
     }
   };
 
+  const descargarCatalogo = () => {
+    const doc = new jsPDF();
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.text('Catálogo de Productos - BIBI STORE', 105, 20, { align: 'center' });
+    
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Generado el: ${new Date().toLocaleDateString()}`, 105, 28, { align: 'center' });
+    doc.text(`Tasa del Día: ${formatBs(tasaDolar)}`, 105, 34, { align: 'center' });
+
+    let finalY = 44;
+
+    const categorias = Array.from(new Set(productos.map(p => p.categoria || 'Sin Categoría'))).sort();
+
+    categorias.forEach(cat => {
+      const prodsCat = productos.filter(p => (p.categoria || 'Sin Categoría') === cat).sort((a,b) => a.nombre.localeCompare(b.nombre));
+      
+      if (prodsCat.length === 0) return;
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.text(cat.toUpperCase(), 14, finalY);
+      finalY += 6;
+
+      const tableData = prodsCat.map(p => [
+        p.codigo_barras || 'S/N',
+        p.nombre,
+        p.stock.toString() + (p.unidad_medida === 'kg' ? ' Kg' : ' Unid'),
+        formatUSD(p.precio_usd),
+        formatBs(p.precio_usd * tasaDolar)
+      ]);
+
+      autoTable(doc, {
+        startY: finalY,
+        head: [['Código', 'Producto', 'Stock', 'Precio (USD)', 'Precio (VED)']],
+        body: tableData,
+        theme: 'striped',
+        headStyles: { fillColor: [0, 0, 0] },
+        styles: { fontSize: 9 },
+        margin: { left: 14, right: 14 }
+      });
+
+      finalY = (doc as any).lastAutoTable.finalY + 14;
+      
+      if (finalY > 260) {
+        doc.addPage();
+        finalY = 20;
+      }
+    });
+
+    doc.save('Catalogo_BibiStore.pdf');
+  };
+
   return (
     <div className="flex flex-col h-full bg-white">
       {/* Header and Search */}
@@ -281,6 +337,13 @@ export default function Inventario() {
         </div>
 
         <div className="flex items-center gap-2 w-full md:w-auto">
+          <button 
+            onClick={descargarCatalogo}
+            className="bg-black text-white border-2 border-black px-4 py-2 font-bold uppercase tracking-wider text-xs hover:bg-yellow-400 hover:text-black transition-all flex items-center gap-2 whitespace-nowrap"
+            title="Descargar Catálogo PDF"
+          >
+            <FileDown size={16} /> <span className="hidden sm:inline">Descargar</span>
+          </button>
           <div className="relative flex-1 md:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
             <input 
