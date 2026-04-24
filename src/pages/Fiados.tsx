@@ -40,6 +40,16 @@ export default function Fiados() {
   const fiadosFiltrados = fiados.filter(f => f.cliente.toLowerCase().includes(busqueda.toLowerCase()));
   const totalPendiente = fiados.filter(f => f.estado === 'pendiente').reduce((acc, curr) => acc + curr.monto_usd, 0);
 
+  if (role === 'cajero') {
+    return (
+      <div className="flex flex-col h-full bg-white border-2 border-black max-w-5xl mx-auto w-full items-center justify-center p-6 text-center">
+        <Users className="text-gray-300 mb-4" size={64} />
+        <h2 className="text-2xl font-black uppercase tracking-widest mb-2">Acceso Restringido</h2>
+        <p className="text-sm font-mono text-gray-500 uppercase tracking-widest">No tienes permisos para acceder a los fiados.</p>
+      </div>
+    );
+  }
+
   const guardarFiado = async (e: React.FormEvent) => {
     e.preventDefault();
     try {

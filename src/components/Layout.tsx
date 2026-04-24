@@ -27,7 +27,7 @@ export default function Layout() {
   const navItems = [
     { name: 'Vender', path: '/', icon: ShoppingCart, roles: ['superadmin', 'admin', 'cajero'] },
     { name: 'Catálogo', path: '/inventario', icon: Package, roles: ['superadmin', 'admin', 'cajero'] },
-    { name: 'Fiados', path: '/fiados', icon: Users, roles: ['superadmin', 'admin', 'cajero'] },
+    { name: 'Fiados', path: '/fiados', icon: Users, roles: ['superadmin', 'admin'] },
     { name: 'Estadísticas', path: '/stats', icon: FileText, roles: ['superadmin', 'admin'] },
     { name: 'Ajustes', path: '/ajustes', icon: Settings, roles: ['superadmin', 'admin', 'cajero'] },
     { name: 'Panel Creador', path: '/panel-creador', icon: ShieldAlert, roles: ['superadmin'] },
