@@ -4,7 +4,7 @@ import { collection, onSnapshot, doc, writeBatch, query, limit, where, getDocs, 
 import { useConfig } from '../contexts/ConfigContext';
 import { useAuth } from '../contexts/AuthContext';
 import { formatUSD, formatBs, cn } from '../lib/utils';
-import { Producto, VentaItem } from '../types';
+import { Producto, VentaItem, CATEGORIAS_PRODUCTO } from '../types';
 import { Search, Trash2, Scan, X, ShoppingCart } from 'lucide-react';
 import Scanner from '../components/Scanner';
 import toast from 'react-hot-toast';
@@ -186,6 +186,10 @@ export default function Vender() {
     }
   };
 
+  const categoriasConProductos = [...CATEGORIAS_PRODUCTO, 'Sin Categoría'].filter(cat => 
+    prodFiltrados.some(p => (p.categoria || 'Sin Categoría') === cat)
+  );
+
   return (
     <div className="flex flex-col md:flex-row flex-1 overflow-hidden relative">
       {scannerAbierto && (
@@ -219,53 +223,65 @@ export default function Vender() {
           </button>
         </div>
         
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 overflow-y-auto scroll-hide pb-20 md:pb-10">
-          {prodFiltrados.map(prod => (
-            <div 
-              key={prod.id} 
-              onClick={() => { if (prod.stock > 0) agregarAlCarrito(prod); }}
-              className={`border-2 border-gray-100 p-4 transition-all group flex flex-col ${prod.stock === 0 ? 'opacity-60 cursor-not-allowed' : 'hover:border-black cursor-pointer'}`}
-            >
-              <div className="flex justify-between items-start mb-2">
-                <span className="text-[10px] bg-gray-100 px-2 py-0.5 font-bold uppercase tracking-tighter truncate max-w-[50%]">Cat: Varios</span>
-                <span className={`text-[10px] font-bold uppercase ${prod.stock === 0 ? 'text-gray-400' : (prod.stock <= 5 ? 'text-red-600' : 'text-green-600')}`}>
-                  {prod.stock === 0 ? 'Agotado' : (prod.stock <= 5 ? `Stock bajo: ${prod.stock}` : `Stock: ${prod.stock}`)}
-                </span>
-              </div>
-              <h3 className="font-bold text-lg mb-1 leading-tight flex-1">{prod.nombre}</h3>
-              <p className="text-xs text-gray-500 mb-3 truncate">Ref: {prod.codigo_barras || 'S/N'}</p>
-              
-              {prod.imagen_url && (
-                <div className="flex justify-center mb-4 h-24">
-                   <img src={prod.imagen_url} alt={prod.nombre} className="h-full w-auto object-contain border-2 border-transparent mix-blend-multiply" />
+        <div className="overflow-y-auto scroll-hide pb-20 md:pb-10 space-y-8 pr-2">
+          {categoriasConProductos.map(cat => {
+            const prodsCat = prodFiltrados.filter(p => (p.categoria || 'Sin Categoría') === cat);
+            return (
+              <div key={cat}>
+                <h2 className="text-sm font-black uppercase tracking-widest bg-yellow-400 inline-block px-3 py-1 mb-4 border-2 border-black shadow-[2px_2px_0px_rgba(0,0,0,1)]">
+                  {cat}
+                </h2>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {prodsCat.map(prod => (
+                    <div 
+                      key={prod.id} 
+                      onClick={() => { if (prod.stock > 0) agregarAlCarrito(prod); }}
+                      className={`border-2 border-gray-100 p-4 transition-all group flex flex-col ${prod.stock === 0 ? 'opacity-60 cursor-not-allowed' : 'hover:border-black cursor-pointer'}`}
+                    >
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="text-[10px] bg-gray-100 px-2 py-0.5 font-bold uppercase tracking-tighter truncate max-w-[50%]">{prod.categoria || 'Sin Categoría'}</span>
+                        <span className={`text-[10px] font-bold uppercase ${prod.stock === 0 ? 'text-gray-400' : (prod.stock <= 5 ? 'text-red-600' : 'text-green-600')}`}>
+                          {prod.stock === 0 ? 'Agotado' : (prod.stock <= 5 ? `Stock bajo: ${prod.stock}` : `Stock: ${prod.stock}`)}
+                        </span>
+                      </div>
+                      <h3 className="font-bold text-lg mb-1 leading-tight flex-1">{prod.nombre}</h3>
+                      <p className="text-xs text-gray-500 mb-3 truncate">Ref: {prod.codigo_barras || 'S/N'}</p>
+                      
+                      {prod.imagen_url && (
+                        <div className="flex justify-center mb-4 h-24">
+                           <img src={prod.imagen_url} alt={prod.nombre} className="h-full w-auto object-contain border-2 border-transparent mix-blend-multiply" />
+                        </div>
+                      )}
+                      
+                      <div className="flex justify-between items-end">
+                        <div className="flex flex-col">
+                          <span className="text-2xl font-extrabold">
+                            {formatUSD(prod.precio_usd)}
+                            <span className="text-[10px] ml-1 font-normal text-gray-400 uppercase">{prod.unidad_medida === 'kg' ? '/ Kg' : ''}</span>
+                          </span>
+                          <span className="text-[10px] font-mono text-gray-400">{formatBs(prod.precio_usd * tasaDolar).replace('Bs. ', '')} VED</span>
+                        </div>
+                        
+                        {prod.stock > 0 ? (
+                          <div className="p-2 bg-yellow-400 group-hover:bg-black group-hover:text-white transition-colors flex shrink-0 items-center justify-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+                            </svg>
+                          </div>
+                        ) : (
+                          <div className="p-2 bg-gray-200 text-gray-400 flex shrink-0 items-center justify-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                            </svg>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              )}
-              
-              <div className="flex justify-between items-end">
-                <div className="flex flex-col">
-                  <span className="text-2xl font-extrabold">
-                    {formatUSD(prod.precio_usd)}
-                    <span className="text-[10px] ml-1 font-normal text-gray-400 uppercase">{prod.unidad_medida === 'kg' ? '/ Kg' : ''}</span>
-                  </span>
-                  <span className="text-[10px] font-mono text-gray-400">{formatBs(prod.precio_usd * tasaDolar).replace('Bs. ', '')} VED</span>
-                </div>
-                
-                {prod.stock > 0 ? (
-                  <div className="p-2 bg-yellow-400 group-hover:bg-black group-hover:text-white transition-colors flex shrink-0 items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-                    </svg>
-                  </div>
-                ) : (
-                  <div className="p-2 bg-gray-200 text-gray-400 flex shrink-0 items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-                    </svg>
-                  </div>
-                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
           
           {prodFiltrados.length === 0 && (
             <div className="col-span-full py-12 text-center text-gray-400 font-bold tracking-widest uppercase">
