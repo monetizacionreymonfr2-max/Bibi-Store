@@ -274,55 +274,110 @@ export default function Inventario() {
   const descargarCatalogo = () => {
     const doc = new jsPDF();
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
-    doc.text('Catálogo de Productos - BIBI STORE', 105, 20, { align: 'center' });
+    doc.setFontSize(14);
+    doc.text('LISTAS DE PRECIOS', 105, 15, { align: 'center' });
     
-    doc.setFontSize(10);
+    doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
-    doc.text(`Generado el: ${new Date().toLocaleDateString()}`, 105, 28, { align: 'center' });
-    doc.text(`Tasa del Día: ${formatBs(tasaDolar)}`, 105, 34, { align: 'center' });
-
-    let finalY = 44;
+    doc.text(`Generado el: ${new Date().toLocaleDateString()}  -  Tasa: ${formatBs(tasaDolar)}`, 105, 20, { align: 'center' });
 
     const categorias = Array.from(new Set(productos.map(p => p.categoria || 'Sin Categoría'))).sort();
-
+    
+    // Prepare data elements
+    const elements: any[] = [];
     categorias.forEach(cat => {
       const prodsCat = productos.filter(p => (p.categoria || 'Sin Categoría') === cat).sort((a,b) => a.nombre.localeCompare(b.nombre));
-      
       if (prodsCat.length === 0) return;
-
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(14);
-      doc.text(cat.toUpperCase(), 14, finalY);
-      finalY += 6;
-
-      const tableData = prodsCat.map(p => [
-        p.codigo_barras || 'S/N',
-        p.nombre,
-        p.stock.toString() + (p.unidad_medida === 'kg' ? ' Kg' : ' Unid'),
-        formatUSD(p.precio_usd),
-        formatBs(p.precio_usd * tasaDolar)
-      ]);
-
-      autoTable(doc, {
-        startY: finalY,
-        head: [['Código', 'Producto', 'Stock', 'Precio (USD)', 'Precio (VED)']],
-        body: tableData,
-        theme: 'striped',
-        headStyles: { fillColor: [0, 0, 0] },
-        styles: { fontSize: 9 },
-        margin: { left: 14, right: 14 }
-      });
-
-      finalY = (doc as any).lastAutoTable.finalY + 14;
       
-      if (finalY > 260) {
-        doc.addPage();
-        finalY = 20;
-      }
+      elements.push({ isCategory: true, text: cat });
+      prodsCat.forEach(p => {
+        elements.push({ 
+          isCategory: false, 
+          name: p.nombre, 
+          price: `${formatUSD(p.precio_usd)} / ${formatBs(p.precio_usd * tasaDolar)}`.replace('Bs. ', 'Bs ')
+        });
+      });
     });
 
-    doc.save('Catalogo_BibiStore.pdf');
+    // Split into two columns
+    const half = Math.ceil(elements.length / 2);
+    const leftElements = elements.slice(0, half);
+    const rightElements = elements.slice(half);
+
+    const body = [];
+    const maxLen = Math.max(leftElements.length, rightElements.length);
+
+    for (let i = 0; i < maxLen; i++) {
+      const l = leftElements[i];
+      const r = rightElements[i];
+      
+      const row = [];
+      
+      if (l) {
+        if (l.isCategory) {
+          row.push({ 
+            content: l.text, 
+            colSpan: 2, 
+            styles: { fontStyle: 'italic', textColor: [0,0,0], fillColor: [245,245,245], halign: 'center', fontSize: 11, cellPadding: 2, font: 'helvetica' } 
+          });
+        } else {
+          row.push({ content: l.name, styles: { fontSize: 9 } });
+          row.push({ content: l.price, styles: { fontSize: 9 } });
+        }
+      } else {
+        row.push({ content: '' });
+        row.push({ content: '' });
+      }
+
+      if (r) {
+        if (r.isCategory) {
+          row.push({ 
+            content: r.text, 
+            colSpan: 2, 
+            styles: { fontStyle: 'italic', textColor: [0,0,0], fillColor: [245,245,245], halign: 'center', fontSize: 11, cellPadding: 2, font: 'helvetica' } 
+          });
+        } else {
+          row.push({ content: r.name, styles: { fontSize: 9 } });
+          row.push({ content: r.price, styles: { fontSize: 9 } });
+        }
+      } else {
+        row.push({ content: '' });
+        row.push({ content: '' });
+      }
+
+      body.push(row);
+    }
+
+    autoTable(doc, {
+      startY: 25,
+      head: [['Producto', 'Precio', 'Producto', 'Precio']],
+      body: body,
+      theme: 'grid',
+      headStyles: { 
+        fillColor: [255, 255, 255], 
+        textColor: [0, 0, 0], 
+        lineColor: [0, 0, 0], 
+        lineWidth: 0.1,
+        halign: 'center',
+        fontStyle: 'bold'
+      },
+      styles: { 
+        lineColor: [0, 0, 0], 
+        lineWidth: 0.1,
+        textColor: [0, 0, 0],
+        cellPadding: 1.5,
+        font: 'helvetica'
+      },
+      columnStyles: {
+        0: { cellWidth: 50 },
+        1: { cellWidth: 40 },
+        2: { cellWidth: 50 },
+        3: { cellWidth: 40 }
+      },
+      margin: { left: 15, right: 15 }
+    });
+
+    doc.save('Listas_de_Precios.pdf');
   };
 
   return (
