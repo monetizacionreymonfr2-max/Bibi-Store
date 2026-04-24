@@ -97,6 +97,42 @@ export default function Ajustes() {
               </p>
             </section>
           )}
+
+          <section className="bg-yellow-50 border-4 border-yellow-400 p-6 flex flex-col gap-4 shadow-[8px_8px_0px_rgba(250,204,21,1)] relative group">
+             <h2 className="text-xl font-black uppercase tracking-widest text-black flex items-center gap-2">
+                🛍️ Catálogo Online
+             </h2>
+             <p className="text-xs font-mono text-gray-600 uppercase tracking-widest flex items-center gap-1">
+                Comparte este enlace con tus clientes para ventas online por WhatsApp.
+             </p>
+             <div className="flex flex-col sm:flex-row gap-3">
+               <input 
+                 readOnly 
+                 value={`${window.location.origin}/tienda`}
+                 className="flex-1 bg-white border-2 border-yellow-400 p-3 font-mono text-sm focus:outline-none focus:border-black transition-colors text-black"
+               />
+               <div className="flex gap-2">
+                 <button 
+                    type="button"
+                    onClick={() => {
+                       navigator.clipboard.writeText(`${window.location.origin}/tienda`);
+                       toast.success("Enlace copiado");
+                    }}
+                    className="flex-1 sm:flex-none justify-center font-bold px-6 py-3 uppercase tracking-widest border-2 border-black bg-white hover:bg-black hover:text-white transition-all text-sm"
+                 >
+                   Copiar
+                 </button>
+                 <a 
+                   href="/tienda" 
+                   target="_blank" 
+                   rel="noopener noreferrer"
+                   className="flex-1 sm:flex-none flex items-center justify-center font-bold px-6 py-3 uppercase tracking-widest border-2 border-black bg-yellow-400 hover:bg-black hover:text-white transition-all text-sm"
+                 >
+                   Abrir
+                 </a>
+               </div>
+             </div>
+          </section>
         </form>
       </div>
     </div>

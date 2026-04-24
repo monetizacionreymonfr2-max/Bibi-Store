@@ -129,7 +129,7 @@ service cloud.firestore {
     }
 
     match /productos/{productoId} {
-      allow read: if isAdminOrCajero();
+      allow read: if true;
       allow create: if isAdminOrCajero() && isValidId(productoId) && isValidProducto(incoming());
       allow update: if isAdminOrCajero() && isValidId(productoId);
       allow delete: if isAdmin() && isValidId(productoId);
