@@ -11,7 +11,8 @@ export const CATEGORIAS_PRODUCTO = [
   'Especies y Condimentos', 
   'Heladería y Bebidas', 
   'Vicios',
-  'Frutas y Verduras'
+  'Frutas y Verduras',
+  'Pollo y Carne'
 ];
 
 export interface Producto {
