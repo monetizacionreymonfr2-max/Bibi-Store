@@ -113,8 +113,8 @@ export default function Inventario() {
   };
 
   useEffect(() => {
-    // Escuchar productos con limite para optimizar cuota
-    const q = query(collection(db, 'productos'), limit(100));
+    // Escuchar productos sin limite para ver todo el inventario
+    const q = query(collection(db, 'productos'));
     const unsubProd = onSnapshot(q, (snap) => {
       const prodData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
       
@@ -141,32 +141,7 @@ export default function Inventario() {
     return matchNombre || matchRef;
   });
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (busqueda && prodFiltrados.length === 0) {
-        buscarRemoto();
-      }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [busqueda, prodFiltrados.length]);
-
-  // Búsqueda profunda para códigos de barras no cargados en los primeros 100
-  const buscarRemoto = async () => {
-    if (!busqueda) return;
-    const term = busqueda.toLowerCase();
-    const matchLocal = productos.some(p => p.codigo_barras?.toLowerCase() === term);
-    
-    if (!matchLocal) {
-      const q = query(collection(db, 'productos'), where('codigo_barras', '==', busqueda));
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        const p = snap.docs[0];
-        const prod = { id: p.id, ...p.data() } as Producto;
-        setProductos(prev => [prod, ...prev]);
-        toast.success("Producto encontrado");
-      }
-    }
-  };
+  // El contador ahora reflejará el total real ya que no hay limit(100)
 
   const abrirModal = (prod?: Producto & { costo_usd?: number }) => {
     setImagenArchivo(null);

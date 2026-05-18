@@ -29,8 +29,8 @@ export default function Vender() {
   const [isEditingWeight, setIsEditingWeight] = useState(false);
 
   useEffect(() => {
-    // Escuchar top 100 productos para optimizar costos
-    const q = query(collection(db, 'productos'), limit(100));
+    // Escuchar todos los productos para la venta
+    const q = query(collection(db, 'productos'));
     const unsub = onSnapshot(q, (snap) => {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
       setProductos(data);
@@ -54,16 +54,8 @@ export default function Vender() {
     return () => clearTimeout(timer);
   }, [busqueda, prodFiltrados.length]);
 
-  // Buscar remotamente si no está en el top 100
+  // No necesitamos buscarRemoto si ya tenemos todos los productos cargados
   const buscarRemoto = async (codigo: string) => {
-    const q = query(collection(db, 'productos'), where('codigo_barras', '==', codigo));
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      const p = snap.docs[0];
-      const prod = { id: p.id, ...p.data() } as Producto;
-      setProductos(prev => [prod, ...prev]);
-      return prod;
-    }
     return null;
   };
 
