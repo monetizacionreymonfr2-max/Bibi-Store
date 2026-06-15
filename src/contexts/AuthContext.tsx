@@ -22,7 +22,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
     const unsubscribeAuth = onAuthStateChanged(auth, async (currUser) => {
       setUser(currUser);
       if (currUser) {
-        if (currUser.email === 'monetizacionreymonfr2@gmail.com') {
+        if (currUser.email === 'monetizacionreymonfr2@gmail.com' || currUser.email === 'floresrusmalby@gmail.com') {
           setRole('superadmin');
           setLoading(false);
           return;
