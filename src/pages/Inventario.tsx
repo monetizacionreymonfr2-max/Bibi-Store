@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, storage } from '../lib/firebase';
-import { collection, doc, deleteDoc, writeBatch, query, limit, where, getDocs, getDoc, orderBy, startAfter, getCountFromServer } from 'firebase/firestore';
+import { collection, onSnapshot, doc, deleteDoc, writeBatch, query, limit, where, getDocs } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfig } from '../contexts/ConfigContext';
@@ -17,13 +17,6 @@ export default function Inventario() {
   const { tasaDolar } = useConfig();
   const [productos, setProductos] = useState<(Producto & { costo_usd?: number })[]>([]);
   const [busqueda, setBusqueda] = useState('');
-  
-  const [totalProductos, setTotalProductos] = useState<number | null>(null);
-  const [lastVisible, setLastVisible] = useState<any>(null);
-  const [hasMore, setHasMore] = useState(true);
-  const [cargandoMas, setCargandoMas] = useState(false);
-  const [cargandoInicial, setCargandoInicial] = useState(false);
-  const [buscandoInterno, setBuscandoInterno] = useState(false);
   
   const [modalAbierto, setModalAbierto] = useState(false);
   const [editandoId, setEditandoId] = useState<string | null>(null);
@@ -119,151 +112,40 @@ export default function Inventario() {
     reader.readAsDataURL(file);
   };
 
-  const PRODUCTS_PER_PAGE = 24;
-
-  const updateCount = async () => {
-    try {
-      const snap = await getCountFromServer(collection(db, 'productos'));
-      setTotalProductos(snap.data().count);
-    } catch (err) {
-      console.error("Error fetching count:", err);
-    }
-  };
-
-  const fetchCostForProduct = async (prodId: string): Promise<number> => {
-    try {
-      const costDoc = await getDoc(doc(db, 'costos_productos', prodId));
-      return costDoc.exists() ? costDoc.data().costo_usd || 0 : 0;
-    } catch {
-      return 0;
-    }
-  };
-
-  const cargarPaginaInicial = async (limpiarBusqueda = false) => {
-    setCargandoInicial(true);
-    try {
-      updateCount();
-      const ref = collection(db, 'productos');
-      const q = query(ref, orderBy('nombre'), limit(PRODUCTS_PER_PAGE));
-      const snap = await getDocs(q);
-      
-      const last = snap.docs[snap.docs.length - 1];
-      setLastVisible(last);
-      setHasMore(snap.docs.length === PRODUCTS_PER_PAGE);
-
-      const prodList = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
-      
-      let finalProds = prodList;
-      if (isAdmin && prodList.length > 0) {
-        finalProds = await Promise.all(
-          prodList.map(async (p) => {
-            const cost = await fetchCostForProduct(p.id);
-            return { ...p, costo_usd: cost };
-          })
-        );
-      }
-      setProductos(finalProds);
-      if (limpiarBusqueda) {
-        setBusqueda('');
-      }
-    } catch (err) {
-      console.error("Error loading initial list:", err);
-    } finally {
-      setCargandoInicial(false);
-    }
-  };
-
-  const cargarSiguientePagina = async () => {
-    if (cargandoMas || !hasMore || !lastVisible || busqueda) return;
-    setCargandoMas(true);
-    try {
-      const ref = collection(db, 'productos');
-      const q = query(ref, orderBy('nombre'), startAfter(lastVisible), limit(PRODUCTS_PER_PAGE));
-      const snap = await getDocs(q);
-      
-      const last = snap.docs[snap.docs.length - 1];
-      setLastVisible(last);
-      setHasMore(snap.docs.length === PRODUCTS_PER_PAGE);
-
-      const prodList = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
-      
-      let finalProds = prodList;
-      if (isAdmin && prodList.length > 0) {
-        finalProds = await Promise.all(
-          prodList.map(async (p) => {
-            const cost = await fetchCostForProduct(p.id);
-            return { ...p, costo_usd: cost };
-          })
-        );
-      }
-      setProductos(prev => [...prev, ...finalProds]);
-    } catch (err) {
-      console.error("Error loading next page:", err);
-    } finally {
-      setCargandoMas(false);
-    }
-  };
-
-  const ejecutarBusquedaSrv = async (term: string) => {
-    if (!term) return;
-    setBuscandoInterno(true);
-    try {
-      const prodsRef = collection(db, 'productos');
-      const cleaned = term.trim();
-      const camelCase = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
-      const lower = cleaned.toLowerCase();
-      const upper = cleaned.toUpperCase();
-
-      const queriesToRun = [
-        getDocs(query(prodsRef, where('codigo_barras', '==', cleaned), limit(20))),
-        getDocs(query(prodsRef, where('nombre', '>=', cleaned), where('nombre', '<=', cleaned + '\uf8ff'), limit(20))),
-        getDocs(query(prodsRef, where('nombre', '>=', camelCase), where('nombre', '<=', camelCase + '\uf8ff'), limit(20))),
-        getDocs(query(prodsRef, where('nombre', '>=', lower), where('nombre', '<=', lower + '\uf8ff'), limit(20))),
-        getDocs(query(prodsRef, where('nombre', '>=', upper), where('nombre', '<=', upper + '\uf8ff'), limit(20))),
-      ];
-
-      const results = await Promise.all(queriesToRun);
-      const map = new Map<string, Producto>();
-      
-      results.forEach(snap => {
-        snap.forEach(d => {
-          map.set(d.id, { id: d.id, ...d.data() } as Producto);
-        });
-      });
-
-      const uniqueList = Array.from(map.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
-
-      let finalProds = uniqueList;
-      if (isAdmin && uniqueList.length > 0) {
-        finalProds = await Promise.all(
-          uniqueList.map(async (p) => {
-            const cost = await fetchCostForProduct(p.id);
-            return { ...p, costo_usd: cost };
-          })
-        );
-      }
-      setProductos(finalProds);
-    } catch (err) {
-      console.error("Error executing server search:", err);
-    } finally {
-      setBuscandoInterno(false);
-    }
-  };
-
   useEffect(() => {
-    if (!busqueda) {
-      cargarPaginaInicial();
-      return;
-    }
+    // Escuchar productos sin limite para ver todo el inventario
+    const q = query(collection(db, 'productos'));
+    let unsubProd: () => void;
+    let unsubCost: (() => void) | undefined;
+    
+    unsubProd = onSnapshot(q, (snap) => {
+      const prodData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
+      
+      if (isAdmin) {
+        if (unsubCost) unsubCost();
+        unsubCost = onSnapshot(collection(db, 'costos_productos'), (snapCost) => {
+          const costData: Record<string, number> = {};
+          snapCost.forEach(d => { costData[d.id] = d.data().costo_usd; });
+          
+          setProductos(prodData.map(p => ({ ...p, costo_usd: costData[p.id] || 0 })));
+        });
+      } else {
+        setProductos(prodData);
+      }
+    });
 
-    const timer = setTimeout(() => {
-      ejecutarBusquedaSrv(busqueda);
-    }, 450);
+    return () => {
+      unsubProd();
+      if (unsubCost) unsubCost();
+    };
+  }, [isAdmin]);
 
-    return () => clearTimeout(timer);
-  }, [busqueda]);
-
-  const prodFiltrados = productos;
+  const prodFiltrados = productos.filter(p => {
+    const term = busqueda.toLowerCase();
+    const matchNombre = p.nombre.toLowerCase().includes(term);
+    const matchRef = p.codigo_barras && p.codigo_barras.toLowerCase().includes(term);
+    return matchNombre || matchRef;
+  });
 
   const abrirModal = (prod?: Producto & { costo_usd?: number }) => {
     setImagenArchivo(null);
@@ -342,13 +224,11 @@ export default function Inventario() {
       
       toast.success("Producto guardado correctamente", { id: loadingToast, duration: 2000 });
       setModalAbierto(false);
-      cargarPaginaInicial();
     } catch (err) {
       console.error("Error detallado al guardar:", err);
       if (err instanceof Error && err.message.includes("offline")) {
         toast.success("Guardado local (se sincronizará al conectar)", { id: loadingToast, duration: 4000 });
         setModalAbierto(false);
-        cargarPaginaInicial();
       } else {
         toast.error("Error de permisos o conexión.", { id: loadingToast, duration: 5000 });
       }
@@ -365,7 +245,6 @@ export default function Inventario() {
       }
       await deleteDoc(doc(db, 'productos', id));
       toast.success("Producto eliminado");
-      cargarPaginaInicial();
     } catch (err) {
       toast.error("Error al eliminar");
     }
@@ -498,9 +377,7 @@ export default function Inventario() {
           <h1 className="text-2xl font-black uppercase tracking-widest flex items-center gap-2">
             Catálogo
           </h1>
-          <p className="text-[10px] font-mono uppercase text-gray-400 mt-1">
-            {busqueda ? `${productos.length} Encontrados` : `${totalProductos !== null ? totalProductos : '...'} Productos Registrados`}
-          </p>
+          <p className="text-[10px] font-mono uppercase text-gray-400 mt-1">{productos.length} Productos Registrados</p>
         </div>
 
         <div className="flex items-center gap-2 w-full md:w-auto">
@@ -589,18 +466,6 @@ export default function Inventario() {
             <div className="col-span-full py-20 text-center font-bold text-gray-400 uppercase tracking-[0.2em] text-xs">Catalogo Vacio</div>
           )}
         </div>
-
-        {!busqueda && hasMore && (
-          <div className="flex justify-center mt-6 mb-10">
-            <button
-              onClick={cargarSiguientePagina}
-              disabled={cargandoMas || cargandoInicial}
-              className="px-6 py-3 bg-[black] text-white hover:bg-yellow-400 hover:text-black border-2 border-black font-black uppercase tracking-widest text-xs transition-all disabled:opacity-50"
-            >
-              {cargandoMas ? "Cargando más..." : "Cargar más productos"}
-            </button>
-          </div>
-        )}
       </div>
 
       {modalAbierto && (

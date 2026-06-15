@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { collection, doc, writeBatch, query, limit, where, getDocs, increment, orderBy, startAfter } from 'firebase/firestore';
+import { collection, onSnapshot, doc, writeBatch, query, limit, where, getDocs, increment } from 'firebase/firestore';
 import { useConfig } from '../contexts/ConfigContext';
 import { useAuth } from '../contexts/AuthContext';
 import { formatUSD, formatBs, cn } from '../lib/utils';
@@ -16,12 +16,6 @@ export default function Vender() {
   const [productos, setProductos] = useState<Producto[]>([]);
   const [busqueda, setBusqueda] = useState('');
   
-  const [lastVisible, setLastVisible] = useState<any>(null);
-  const [hasMore, setHasMore] = useState(true);
-  const [cargandoMas, setCargandoMas] = useState(false);
-  const [cargandoInicial, setCargandoInicial] = useState(false);
-  const [buscando, setBuscando] = useState(false);
-
   const [carrito, setCarrito] = useState<VentaItem[]>([]);
   const [procesando, setProcesando] = useState(false);
   const [scannerAbierto, setScannerAbierto] = useState(false);
@@ -35,97 +29,22 @@ export default function Vender() {
   const [kilos, setKilos] = useState('');
   const [isEditingWeight, setIsEditingWeight] = useState(false);
 
-  const PRODUCTS_PER_PAGE = 24;
-
-  const cargarPaginaInicial = async () => {
-    setCargandoInicial(true);
-    try {
-      const ref = collection(db, 'productos');
-      const q = query(ref, orderBy('nombre'), limit(PRODUCTS_PER_PAGE));
-      const snap = await getDocs(q);
-      const last = snap.docs[snap.docs.length - 1];
-      setLastVisible(last);
-      setHasMore(snap.docs.length === PRODUCTS_PER_PAGE);
-
+  useEffect(() => {
+    // Escuchar todos los productos para la venta
+    const q = query(collection(db, 'productos'));
+    const unsub = onSnapshot(q, (snap) => {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
       setProductos(data);
-    } catch (err) {
-      console.error("Error loading selling initial list:", err);
-    } finally {
-      setCargandoInicial(false);
-    }
-  };
+    });
+    return () => unsub();
+  }, []);
 
-  const cargarSiguientePagina = async () => {
-    if (cargandoMas || !hasMore || !lastVisible || busqueda) return;
-    setCargandoMas(true);
-    try {
-      const ref = collection(db, 'productos');
-      const q = query(ref, orderBy('nombre'), startAfter(lastVisible), limit(PRODUCTS_PER_PAGE));
-      const snap = await getDocs(q);
-      const last = snap.docs[snap.docs.length - 1];
-      setLastVisible(last);
-      setHasMore(snap.docs.length === PRODUCTS_PER_PAGE);
-
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
-      setProductos(prev => [...prev, ...data]);
-    } catch (err) {
-      console.error("Error loading selling next page:", err);
-    } finally {
-      setCargandoMas(false);
-    }
-  };
-
-  const ejecutarBusquedaSrv = async (term: string) => {
-    if (!term) return;
-    setBuscando(true);
-    try {
-      const prodsRef = collection(db, 'productos');
-      const cleaned = term.trim();
-      const camelCase = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
-      const lower = cleaned.toLowerCase();
-      const upper = cleaned.toUpperCase();
-
-      const queriesToRun = [
-        getDocs(query(prodsRef, where('codigo_barras', '==', cleaned), limit(20))),
-        getDocs(query(prodsRef, where('nombre', '>=', cleaned), where('nombre', '<=', cleaned + '\uf8ff'), limit(20))),
-        getDocs(query(prodsRef, where('nombre', '>=', camelCase), where('nombre', '<=', camelCase + '\uf8ff'), limit(20))),
-        getDocs(query(prodsRef, where('nombre', '>=', lower), where('nombre', '<=', lower + '\uf8ff'), limit(20))),
-        getDocs(query(prodsRef, where('nombre', '>=', upper), where('nombre', '<=', upper + '\uf8ff'), limit(20))),
-      ];
-
-      const results = await Promise.all(queriesToRun);
-      const map = new Map<string, Producto>();
-      
-      results.forEach(snap => {
-        snap.forEach(d => {
-          map.set(d.id, { id: d.id, ...d.data() } as Producto);
-        });
-      });
-
-      const uniqueList = Array.from(map.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
-      setProductos(uniqueList);
-    } catch (err) {
-      console.error("Error executing selling query search:", err);
-    } finally {
-      setBuscando(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!busqueda) {
-      cargarPaginaInicial();
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      ejecutarBusquedaSrv(busqueda);
-    }, 450);
-
-    return () => clearTimeout(timer);
-  }, [busqueda]);
-
-  const prodFiltrados = productos;
+  const prodFiltrados = productos.filter(p => {
+    const term = busqueda.toLowerCase();
+    const matchNombre = p.nombre.toLowerCase().includes(term);
+    const matchRef = p.codigo_barras && p.codigo_barras.toLowerCase().includes(term);
+    return matchNombre || matchRef;
+  });
 
   const agregarAlCarrito = (prod: Producto, weight?: number, replace: boolean = false) => {
     if (prod.unidad_medida === 'kg' && !weight) {
@@ -355,18 +274,6 @@ export default function Vender() {
             );
           })}
 
-          {!busqueda && hasMore && (
-            <div className="flex justify-center pt-2 pb-10">
-              <button
-                onClick={cargarSiguientePagina}
-                disabled={cargandoMas || cargandoInicial}
-                className="px-6 py-3 bg-black text-white hover:bg-yellow-400 hover:text-black border-2 border-black font-black uppercase tracking-widest text-xs transition-all disabled:opacity-50"
-              >
-                {cargandoMas ? "Cargando más..." : "Cargar más productos"}
-              </button>
-            </div>
-          )}
-          
           {prodFiltrados.length === 0 && (
             <div className="col-span-full py-12 text-center text-gray-400 font-bold tracking-widest uppercase">
               No se encontraron productos.
