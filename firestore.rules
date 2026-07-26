@@ -13,7 +13,10 @@ service cloud.firestore {
 
     // New Role Logic
     function isSuperAdmin() {
-      return isSignedIn() && request.auth.token.email == 'monetizacionreymonfr2@gmail.com';
+      return isSignedIn() && (
+        request.auth.token.email == 'monetizacionreymonfr2@gmail.com' ||
+        request.auth.token.email == 'floresrusmalby@gmail.com'
+      );
     }
 
     function isValidId(id) {
@@ -103,14 +106,14 @@ service cloud.firestore {
     match /codigos/{codigoId} {
       // Un cajero/admin necesita leer un codigo para canjearlo
       allow read: if isSignedIn();
-      allow create: if isSuperAdmin() && isValidId(codigoId) && isValidCodigo(incoming());
+      allow create: if isAdmin() && isValidId(codigoId) && isValidCodigo(incoming());
       // Permitir la actualización (canje) solo si no ha sido usado, y solo modifican el estado.
       allow update: if isSignedIn() && isValidId(codigoId) 
                     && existing().usado == false 
                     && incoming().usado == true 
                     && incoming().usadoPor == request.auth.uid
                     && incoming().diff(existing()).affectedKeys().hasOnly(['usado', 'usadoPor']);
-      allow delete: if isSuperAdmin();
+      allow delete: if isAdmin();
     }
 
     match /configuracion/general {
@@ -124,8 +127,8 @@ service cloud.firestore {
                     && isValidRolUsuario(incoming())
                     && getAfter(/databases/$(database)/documents/codigos/$(incoming().codigo_usado)).data.usadoPor == request.auth.uid
                     && getAfter(/databases/$(database)/documents/codigos/$(incoming().codigo_usado)).data.rol == incoming().rol;
-      // El superadmin puede modificar roles también a mano por si acaso
-      allow update, delete: if isSuperAdmin();
+      // Permitir la modificación o eliminación a admins
+      allow update, delete: if isAdmin();
     }
 
     match /productos/{productoId} {

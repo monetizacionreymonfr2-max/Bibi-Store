@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { useConfig } from "../contexts/ConfigContext";
 import { signInWithGoogle, signOut, db } from "../lib/firebase";
 import { doc, getDoc, writeBatch } from "firebase/firestore";
-import { Store, ShieldAlert, KeyRound, LogOut } from "lucide-react";
+import { ShieldAlert, KeyRound, LogOut } from "lucide-react";
 import BibiStoreLogo from "../components/BibiStoreLogo";
+import toast from "react-hot-toast";
 
 export default function Login() {
   const { user, loading, role } = useAuth();
@@ -23,15 +23,29 @@ export default function Login() {
   const canjearCodigo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+
+    const codeClean = codigoIngresado.trim().toUpperCase();
+    if (!codeClean) {
+      toast.error("Por favor ingresa un código válido.");
+      return;
+    }
+
     setVerificando(true);
+    const loadingToast = toast.loading("Verificando código de acceso...");
 
     try {
       // 1. Check if the code doc exists and is not used
-      const docRef = doc(db, 'codigos', codigoIngresado.trim());
+      const docRef = doc(db, 'codigos', codeClean);
       const docSnap = await getDoc(docRef);
 
-      if (!docSnap.exists() || docSnap.data().usado) {
-        alert("El código ingresado es inválido o ya fue utilizado.");
+      if (!docSnap.exists()) {
+        toast.error("El código no existe. Verifica los caracteres con la administradora.", { id: loadingToast, duration: 4000 });
+        setVerificando(false);
+        return;
+      }
+
+      if (docSnap.data().usado) {
+        toast.error("Este código ya fue utilizado anteriormente.", { id: loadingToast, duration: 4000 });
         setVerificando(false);
         return;
       }
@@ -50,17 +64,16 @@ export default function Login() {
       // Create user role document
       batch.set(doc(db, 'usuarios', user.uid), {
         rol: rolAsignado,
-        codigo_usado: codigoIngresado.trim()
+        codigo_usado: codeClean
       });
 
       await batch.commit();
       
-      // La recarga de auth context detectará el cambio gracias a onSnapshot en usuarios
-      alert(`¡Código verificado! Bienvenido/a al sistema como: ${rolAsignado.toUpperCase()}`);
+      toast.success(`¡Código verificado! Bienvenido/a al sistema como ${rolAsignado === 'admin' ? 'ADMINISTRADORA' : 'CAJERA'}`, { id: loadingToast, duration: 5000 });
 
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert("Ocurrió un error al canjear el código (verifique la consola).");
+      toast.error("Error al canjear el código: " + (err?.message || "Sin permisos"), { id: loadingToast });
     } finally {
       setVerificando(false);
     }
