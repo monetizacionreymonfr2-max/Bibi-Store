@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfig } from '../contexts/ConfigContext';
 import { Producto, CATEGORIAS_PRODUCTO } from '../types';
-import { formatUSD, formatBs, cn } from '../lib/utils';
+import { formatUSD, formatBs, cn, normalizeProducto } from '../lib/utils';
 import { Plus, Edit2, Trash2, Search, X, Scan, Filter, FileDown } from 'lucide-react';
 import Scanner from '../components/Scanner';
 import toast from 'react-hot-toast';
@@ -114,16 +114,24 @@ export default function Inventario() {
     const fetchProductos = async () => {
       const { data: prodData } = await supabase.from('productos').select('*');
       if (prodData) {
+        let costMap: Record<string, number> = {};
         if (isAdmin) {
           const { data: costData } = await supabase.from('costos_productos').select('*');
-          const costMap: Record<string, number> = {};
           if (costData) {
-            costData.forEach((d: any) => { costMap[d.id] = d.costo_usd; });
+            costData.forEach((d: any) => {
+              const costVal = Number(d.costo_usd ?? d.costo ?? d.cost ?? 0);
+              costMap[d.id] = costVal;
+            });
           }
-          setProductos(prodData.map((p: any) => ({ ...p, costo_usd: costMap[p.id] || 0 })));
-        } else {
-          setProductos(prodData as Producto[]);
         }
+
+        const normalizedList = prodData.map((p: any) => {
+          const norm = normalizeProducto(p);
+          const costoVal = costMap[p.id] || costMap[norm.id] || Number(p.costo_usd || p.costo || 0);
+          return { ...norm, costo_usd: costoVal };
+        });
+
+        setProductos(normalizedList);
       }
     };
 
@@ -195,14 +203,18 @@ export default function Inventario() {
     setGuardando(true);
     
     try {
+      const precioNum = Number(precio) || 0;
       const payloadObj = {
         nombre: nombre.trim(),
-        precio_usd: Number(precio) || 0,
+        precio_usd: precioNum,
+        precio: precioNum,
+        precio_venta: precioNum,
         stock: Number(stock) || 0,
         unidad_medida: unidadMedida,
         categoria: categoria || 'Sin Categoría',
         codigo_barras: (codigo || "N/A").trim(),
-        imagen_url: imagenUrl || ""
+        imagen_url: imagenUrl || "",
+        imagen: imagenUrl || ""
       };
 
       let idToUse = editandoId;

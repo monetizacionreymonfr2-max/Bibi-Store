@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useConfig } from '../contexts/ConfigContext';
 import { useAuth } from '../contexts/AuthContext';
-import { formatUSD, formatBs, cn } from '../lib/utils';
+import { formatUSD, formatBs, cn, normalizeProducto } from '../lib/utils';
 import { Producto, VentaItem, CATEGORIAS_PRODUCTO } from '../types';
 import { Search, Trash2, Scan, X, ShoppingCart } from 'lucide-react';
 import Scanner from '../components/Scanner';
@@ -32,7 +32,7 @@ export default function Vender() {
     const fetchProductos = async () => {
       const { data, error } = await supabase.from('productos').select('*');
       if (!error && data) {
-        setProductos(data as Producto[]);
+        setProductos(data.map(normalizeProducto));
       }
     };
 

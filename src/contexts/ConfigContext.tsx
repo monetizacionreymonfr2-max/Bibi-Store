@@ -12,14 +12,19 @@ export const ConfigProvider: React.FC<{children: React.ReactNode}> = ({ children
 
   useEffect(() => {
     const fetchConfig = async () => {
-      const { data, error } = await supabase
-        .from('configuracion')
-        .select('*')
-        .eq('id', 'general')
-        .maybeSingle();
-
-      if (!error && data && data.tasa_dolar) {
-        setTasaDolar(data.tasa_dolar);
+      try {
+        const { data, error } = await supabase.from('configuracion').select('*');
+        if (!error && data && data.length > 0) {
+          const confRow = data.find((c: any) => c.id === 'general') || data[0];
+          const val = Number(
+            confRow.tasa_dolar ?? confRow.tasa ?? confRow.tasa_bcv ?? confRow.tasaDolar ?? confRow.valor_dolar ?? 0
+          );
+          if (val > 0) {
+            setTasaDolar(val);
+          }
+        }
+      } catch (err) {
+        console.error("Error cargando configuración:", err);
       }
     };
 

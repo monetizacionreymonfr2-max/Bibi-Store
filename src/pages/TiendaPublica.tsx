@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useConfig } from '../contexts/ConfigContext';
 import { Producto, VentaItem, CATEGORIAS_PRODUCTO } from '../types';
-import { formatUSD, formatBs, cn } from '../lib/utils';
+import { formatUSD, formatBs, cn, normalizeProducto } from '../lib/utils';
 import BibiStoreLogo from '../components/BibiStoreLogo';
 import { ShoppingCart, Search, X, Trash2 } from 'lucide-react';
 
@@ -24,12 +24,12 @@ export default function TiendaPublica() {
     const fetchProductos = async () => {
       const { data, error } = await supabase
         .from('productos')
-        .select('*')
-        .gt('stock', 0);
+        .select('*');
 
       if (!error && data) {
-        data.sort((a: Producto, b: Producto) => a.nombre.localeCompare(b.nombre));
-        setProductos(data as Producto[]);
+        const normalized = data.map(normalizeProducto).filter((p: Producto) => p.stock > 0);
+        normalized.sort((a: Producto, b: Producto) => a.nombre.localeCompare(b.nombre));
+        setProductos(normalized);
       }
     };
 
