@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { db } from '../lib/firebase';
-import { collection, onSnapshot, query, orderBy, deleteDoc, doc } from 'firebase/firestore';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { Venta, CATEGORIAS_PRODUCTO } from '../types';
 import { formatUSD, formatBs, cn } from '../lib/utils';
@@ -23,23 +22,44 @@ export default function Estadisticas() {
   useEffect(() => {
     if (!isAdmin) return;
 
-    const q = query(collection(db, 'ventas'), orderBy('fecha', 'desc'));
-    const unsubVentas = onSnapshot(q, (snap) => {
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Venta));
-      setVentas(data);
-    });
+    const fetchVentas = async () => {
+      const { data, error } = await supabase.from('ventas').select('*').order('fecha', { ascending: false });
+      if (!error && data) {
+        setVentas(data as Venta[]);
+      }
+    };
 
-    const unsubCostos = onSnapshot(collection(db, 'costos_productos'), (snap) => {
-      const costs: Record<string, number> = {};
-      snap.docs.forEach(d => {
-        costs[d.id] = d.data().costo_usd;
-      });
-      setCostos(costs);
-    });
+    const fetchCostos = async () => {
+      const { data, error } = await supabase.from('costos_productos').select('*');
+      if (!error && data) {
+        const costs: Record<string, number> = {};
+        data.forEach((d: any) => {
+          costs[d.id] = d.costo_usd;
+        });
+        setCostos(costs);
+      }
+    };
+
+    fetchVentas();
+    fetchCostos();
+
+    const channelVentas = supabase
+      .channel('ventas_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ventas' }, () => {
+        fetchVentas();
+      })
+      .subscribe();
+
+    const channelCostos = supabase
+      .channel('costos_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'costos_productos' }, () => {
+        fetchCostos();
+      })
+      .subscribe();
 
     return () => {
-      unsubVentas();
-      unsubCostos();
+      supabase.removeChannel(channelVentas);
+      supabase.removeChannel(channelCostos);
     };
   }, [isAdmin]);
 
@@ -85,7 +105,8 @@ export default function Estadisticas() {
   const eliminarVenta = async (id: string) => {
     if (!confirm("¿Seguro que quieres eliminar esta venta? Esta acción no se puede deshacer y afectará los reportes.")) return;
     try {
-      await deleteDoc(doc(db, 'ventas', id));
+      const { error } = await supabase.from('ventas').delete().eq('id', id);
+      if (error) throw error;
       toast.success("Venta eliminada");
     } catch (err) {
       console.error(err);

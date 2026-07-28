@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { db } from '../lib/firebase';
-import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore';
+import { supabase } from '../lib/supabase';
 import { useConfig } from '../contexts/ConfigContext';
 import { Producto, VentaItem, CATEGORIAS_PRODUCTO } from '../types';
 import { formatUSD, formatBs, cn } from '../lib/utils';
@@ -22,18 +21,30 @@ export default function TiendaPublica() {
   const [gramos, setGramos] = useState('');
 
   useEffect(() => {
-    // Escuchar productos con stock > 0
-    const q = query(collection(db, 'productos'), where('stock', '>', 0));
-    const unsubscribe = onSnapshot(q, (snap) => {
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
-      // Ordenar localmente por nombre
-      data.sort((a, b) => a.nombre.localeCompare(b.nombre));
-      setProductos(data);
-    }, (err) => {
-      console.error("Error obteniendo productos:", err);
-    });
+    const fetchProductos = async () => {
+      const { data, error } = await supabase
+        .from('productos')
+        .select('*')
+        .gt('stock', 0);
 
-    return () => unsubscribe();
+      if (!error && data) {
+        data.sort((a: Producto, b: Producto) => a.nombre.localeCompare(b.nombre));
+        setProductos(data as Producto[]);
+      }
+    };
+
+    fetchProductos();
+
+    const channel = supabase
+      .channel('productos_tienda_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'productos' }, () => {
+        fetchProductos();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const prodFiltrados = productos.filter(p => {

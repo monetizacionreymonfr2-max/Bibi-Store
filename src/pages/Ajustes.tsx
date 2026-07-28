@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../lib/firebase';
-import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
+import { supabase } from '../lib/supabase';
 import { useConfig } from '../contexts/ConfigContext';
 import { Settings, Save } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -23,19 +22,15 @@ export default function Ajustes() {
     setGuardando(true);
     const loadingToast = toast.loading("Actualizando ajustes...");
     try {
-      const ref = doc(db, 'configuracion', 'general');
-      const docSnap = await getDoc(ref);
-      const data = { 
-        tasa_dolar: Number(nuevaTasa)
-      };
+      const { error } = await supabase.from('configuracion').upsert({
+        id: 'general',
+        tasa_dolar: Number(nuevaTasa),
+        fecha_actualizacion: Date.now()
+      });
 
-      if (docSnap.exists()) {
-        await updateDoc(ref, data);
-      } else {
-        await setDoc(ref, data);
-      }
+      if (error) throw error;
       toast.success("Ajustes actualizados", { id: loadingToast });
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
       toast.error("Error al actualizar ajustes", { id: loadingToast });
     } finally {

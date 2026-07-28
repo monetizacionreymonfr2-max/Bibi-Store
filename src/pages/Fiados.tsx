@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../lib/firebase';
-import { collection, onSnapshot, addDoc, doc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { Fiado } from '../types';
 import { formatUSD, formatBs, cn } from '../lib/utils';
@@ -30,11 +29,25 @@ export default function Fiados() {
   const [montoAbono, setMontoAbono] = useState('');
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'fiados'), (snap) => {
-      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Fiado));
-      setFiados(data.sort((a,b) => b.fecha - a.fecha)); // sort desc
-    });
-    return () => unsub();
+    const fetchFiados = async () => {
+      const { data, error } = await supabase.from('fiados').select('*');
+      if (!error && data) {
+        setFiados((data as Fiado[]).sort((a,b) => b.fecha - a.fecha));
+      }
+    };
+
+    fetchFiados();
+
+    const channel = supabase
+      .channel('fiados_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'fiados' }, () => {
+        fetchFiados();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const fiadosFiltrados = fiados.filter(f => f.cliente.toLowerCase().includes(busqueda.toLowerCase()));
@@ -56,20 +69,22 @@ export default function Fiados() {
       const existing = fiados.find(f => f.cliente.toLowerCase() === cliente.trim().toLowerCase() && f.estado === 'pendiente');
       
       if (existing) {
-        // Sumar a la deuda existente
-        await updateDoc(doc(db, 'fiados', existing.id), {
+        const { error } = await supabase.from('fiados').update({
           monto_usd: existing.monto_usd + Number(montoUSD),
           descripcion: existing.descripcion ? `${existing.descripcion}, ${descripcion}` : descripcion,
           fecha: Date.now()
-        });
+        }).eq('id', existing.id);
+        if (error) throw error;
       } else {
-        await addDoc(collection(db, 'fiados'), {
+        const { error } = await supabase.from('fiados').insert({
+          id: 'fiado_' + Math.random().toString(36).substring(2, 9),
           cliente: cliente.trim().toUpperCase(),
           monto_usd: Number(montoUSD),
           descripcion: descripcion,
           fecha: Date.now(),
           estado: 'pendiente'
         });
+        if (error) throw error;
       }
       
       setModalAbierto(false);
@@ -94,14 +109,18 @@ export default function Fiados() {
     const loadingToast = toast.loading("Procesando abono...");
     try {
       const nuevoMonto = modalAbono.deuda - monto;
-      await updateDoc(doc(db, 'fiados', modalAbono.fiadoId), {
+      const targetFiado = fiados.find(f => f.id === modalAbono.fiadoId);
+      const historial = targetFiado?.historial_abonos || [];
+      const nuevoHistorial = [...historial, { monto_usd: monto, fecha: Date.now() }];
+
+      const { error } = await supabase.from('fiados').update({
         monto_usd: nuevoMonto,
         estado: nuevoMonto <= 0 ? 'pagado' : 'pendiente',
-        historial_abonos: arrayUnion({
-          monto_usd: monto,
-          fecha: Date.now()
-        })
-      });
+        historial_abonos: nuevoHistorial
+      }).eq('id', modalAbono.fiadoId);
+
+      if (error) throw error;
+
       setModalAbono({ abierto: false, fiadoId: '', cliente: '', deuda: 0 });
       setMontoAbono('');
       toast.success("Abono procesado con éxito", { id: loadingToast });
@@ -114,14 +133,17 @@ export default function Fiados() {
     if(!confirm("¿Confirmar pago total de esta deuda?")) return;
     const loadingToast = toast.loading("Actualizando...");
     try {
-      await updateDoc(doc(db, 'fiados', fiado.id), { 
+      const historial = fiado.historial_abonos || [];
+      const nuevoHistorial = [...historial, { monto_usd: fiado.monto_usd, fecha: Date.now() }];
+
+      const { error } = await supabase.from('fiados').update({ 
         estado: 'pagado', 
         monto_usd: 0,
-        historial_abonos: arrayUnion({
-          monto_usd: fiado.monto_usd, // Liquidamos lo que falta
-          fecha: Date.now()
-        })
-      });
+        historial_abonos: nuevoHistorial
+      }).eq('id', fiado.id);
+
+      if (error) throw error;
+
       toast.success("Deuda saldada", { id: loadingToast });
     } catch (err) {
       console.error(err);

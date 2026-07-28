@@ -73,3 +73,17 @@ export interface Fiado {
 export interface Config {
   tasa_dolar: number;
 }
+
+export interface CodigoAcceso {
+  id: string;
+  codigo?: string;
+  rol: 'superadmin' | 'admin' | 'cajero';
+  activo?: boolean;
+  usado?: boolean;
+  usadoPor?: string;
+  creadoPor?: string;
+  creadoEn?: number;
+  created_at?: string;
+  nombre?: string;
+  descripcion?: string;
+}
