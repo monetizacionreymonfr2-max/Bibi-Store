@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { db } from '../lib/firebase';
+import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore';
 import { useConfig } from '../contexts/ConfigContext';
 import { Producto, VentaItem, CATEGORIAS_PRODUCTO } from '../types';
-import { formatUSD, formatBs, cn, normalizeProducto } from '../lib/utils';
+import { formatUSD, formatBs, cn } from '../lib/utils';
 import BibiStoreLogo from '../components/BibiStoreLogo';
 import { ShoppingCart, Search, X, Trash2 } from 'lucide-react';
 
@@ -21,30 +22,18 @@ export default function TiendaPublica() {
   const [gramos, setGramos] = useState('');
 
   useEffect(() => {
-    const fetchProductos = async () => {
-      const { data, error } = await supabase
-        .from('productos')
-        .select('*');
+    // Escuchar productos con stock > 0
+    const q = query(collection(db, 'productos'), where('stock', '>', 0));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
+      // Ordenar localmente por nombre
+      data.sort((a, b) => a.nombre.localeCompare(b.nombre));
+      setProductos(data);
+    }, (err) => {
+      console.error("Error obteniendo productos:", err);
+    });
 
-      if (!error && data) {
-        const normalized = data.map(normalizeProducto).filter((p: Producto) => p.stock > 0);
-        normalized.sort((a: Producto, b: Producto) => a.nombre.localeCompare(b.nombre));
-        setProductos(normalized);
-      }
-    };
-
-    fetchProductos();
-
-    const channel = supabase
-      .channel('productos_tienda_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'productos' }, () => {
-        fetchProductos();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => unsubscribe();
   }, []);
 
   const prodFiltrados = productos.filter(p => {

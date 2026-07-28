@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { db } from '../lib/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { useAuth } from './AuthContext';
 
 interface ConfigContextType {
   tasaDolar: number;
@@ -11,41 +13,17 @@ export const ConfigProvider: React.FC<{children: React.ReactNode}> = ({ children
   const [tasaDolar, setTasaDolar] = useState<number>(0);
 
   useEffect(() => {
-    const fetchConfig = async () => {
-      try {
-        const { data, error } = await supabase.from('configuracion').select('*');
-        if (!error && data && data.length > 0) {
-          const confRow = data.find((c: any) => c.id === 'general') || data[0];
-          const val = Number(
-            confRow.tasa_dolar ?? confRow.tasa ?? confRow.tasa_bcv ?? confRow.tasaDolar ?? confRow.valor_dolar ?? 0
-          );
-          if (val > 0) {
-            setTasaDolar(val);
-          }
-        }
-      } catch (err) {
-        console.error("Error cargando configuración:", err);
+    const docRef = doc(db, 'configuracion', 'general');
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setTasaDolar(data.tasa_dolar || 0);
       }
-    };
+    }, (err) => {
+      console.error("Error reading configuracion", err);
+    });
 
-    fetchConfig();
-
-    const channel = supabase
-      .channel('configuracion_changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'configuracion' },
-        (payload) => {
-          if (payload.new && (payload.new as any).tasa_dolar) {
-            setTasaDolar((payload.new as any).tasa_dolar);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => unsubscribe();
   }, []);
 
   return (
@@ -56,4 +34,3 @@ export const ConfigProvider: React.FC<{children: React.ReactNode}> = ({ children
 };
 
 export const useConfig = () => useContext(ConfigContext);
-

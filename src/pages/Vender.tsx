@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { db } from '../lib/firebase';
+import { collection, onSnapshot, doc, writeBatch, query, limit, where, getDocs, increment } from 'firebase/firestore';
 import { useConfig } from '../contexts/ConfigContext';
 import { useAuth } from '../contexts/AuthContext';
-import { formatUSD, formatBs, cn, normalizeProducto } from '../lib/utils';
+import { formatUSD, formatBs, cn } from '../lib/utils';
 import { Producto, VentaItem, CATEGORIAS_PRODUCTO } from '../types';
 import { Search, Trash2, Scan, X, ShoppingCart } from 'lucide-react';
 import Scanner from '../components/Scanner';
@@ -29,25 +30,13 @@ export default function Vender() {
   const [isEditingWeight, setIsEditingWeight] = useState(false);
 
   useEffect(() => {
-    const fetchProductos = async () => {
-      const { data, error } = await supabase.from('productos').select('*');
-      if (!error && data) {
-        setProductos(data.map(normalizeProducto));
-      }
-    };
-
-    fetchProductos();
-
-    const channel = supabase
-      .channel('productos_vender_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'productos' }, () => {
-        fetchProductos();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    // Escuchar todos los productos para la venta
+    const q = query(collection(db, 'productos'));
+    const unsub = onSnapshot(q, (snap) => {
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
+      setProductos(data);
+    });
+    return () => unsub();
   }, []);
 
   const prodFiltrados = productos.filter(p => {
@@ -115,13 +104,14 @@ export default function Vender() {
     setProcesando(true);
     const loadingToast = toast.loading("Procesando venta...");
     try {
-      const ventaId = 'venta_' + Math.random().toString(36).substring(2, 9);
-      const { error: ventaError } = await supabase.from('ventas').insert({
-        id: ventaId,
+      const batch = writeBatch(db);
+      
+      const repVenta = doc(collection(db, 'ventas'));
+      batch.set(repVenta, {
         total_usd: totalUSD,
         total_ved: totalVED,
         fecha: Date.now(),
-        vendedor_id: user?.id || user?.uid || 'desconocido',
+        vendedor_id: user!.uid,
         items: carrito.map(i => ({
           productoId: i.productoId,
           nombre: i.nombre,
@@ -131,23 +121,24 @@ export default function Vender() {
         }))
       });
 
-      if (ventaError) throw ventaError;
-
-      // Update Stock for each product
+      // Update Stock Atómicamente en el servidor
       for (const item of carrito) {
-        const prod = productos.find(p => p.id === item.productoId);
-        if (prod) {
-          const nuevoStock = Math.max(0, prod.stock - item.cantidad);
-          await supabase.from('productos').update({ stock: nuevoStock }).eq('id', item.productoId);
-        }
+        const pref = doc(db, 'productos', item.productoId);
+        batch.update(pref, { stock: increment(-item.cantidad) });
       }
 
+      await batch.commit();
       setCarrito([]);
       toast.success("Venta registrada con éxito", { id: loadingToast });
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       const errorMsg = err instanceof Error ? err.message : "Error desconocido";
-      toast.error("Error al vender: " + errorMsg, { id: loadingToast });
+      if (errorMsg.includes("offline") || !navigator.onLine) {
+        setCarrito([]);
+        toast.success("Venta guardada (Local)", { id: loadingToast });
+      } else {
+        toast.error("Error al vender: " + errorMsg, { id: loadingToast });
+      }
     } finally {
       setProcesando(false);
     }
@@ -155,15 +146,9 @@ export default function Vender() {
 
   const buscarRemoto = async (codigo: string): Promise<Producto | null> => {
     try {
-      const { data, error } = await supabase
-        .from("productos")
-        .select("*")
-        .eq("codigo_barras", codigo)
-        .limit(1)
-        .maybeSingle();
-
-      if (!error && data) {
-        return data as Producto;
+      const snap = await getDocs(query(collection(db, "productos"), where("codigo_barras", "==", codigo), limit(1)));
+      if (!snap.empty) {
+        return { id: snap.docs[0].id, ...snap.docs[0].data() } as Producto;
       }
       return null;
     } catch {

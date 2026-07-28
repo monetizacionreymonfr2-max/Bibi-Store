@@ -1,13 +1,14 @@
 import { Outlet, Link, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useConfig } from "../contexts/ConfigContext";
+import { signOut } from "../lib/firebase";
 import { Store, ShoppingCart, Users, Settings, Package, LogOut, FileText, ShieldAlert, WifiOff } from "lucide-react";
 import { cn } from "../lib/utils";
 import React, { useEffect, useState } from "react";
 import BibiStoreLogo from "./BibiStoreLogo";
 
 export default function Layout() {
-  const { role, user, signOut } = useAuth();
+  const { role, user } = useAuth();
   const { tasaDolar } = useConfig();
   const location = useLocation();
   const [offline, setOffline] = useState(!navigator.onLine);
@@ -29,7 +30,7 @@ export default function Layout() {
     { name: 'Fiados', path: '/fiados', icon: Users, roles: ['superadmin', 'admin'] },
     { name: 'Estadísticas', path: '/stats', icon: FileText, roles: ['superadmin', 'admin'] },
     { name: 'Ajustes', path: '/ajustes', icon: Settings, roles: ['superadmin', 'admin', 'cajero'] },
-    { name: 'Panel Creador', path: '/panel-creador', icon: ShieldAlert, roles: ['superadmin', 'admin'] },
+    { name: 'Panel Creador', path: '/panel-creador', icon: ShieldAlert, roles: ['superadmin'] },
   ];
 
   return (

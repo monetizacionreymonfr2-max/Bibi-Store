@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { db, storage } from '../lib/firebase';
+import { collection, onSnapshot, doc, deleteDoc, writeBatch, query, limit, where, getDocs } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfig } from '../contexts/ConfigContext';
 import { Producto, CATEGORIAS_PRODUCTO } from '../types';
-import { formatUSD, formatBs, cn, normalizeProducto } from '../lib/utils';
+import { formatUSD, formatBs, cn } from '../lib/utils';
 import { Plus, Edit2, Trash2, Search, X, Scan, Filter, FileDown } from 'lucide-react';
 import Scanner from '../components/Scanner';
 import toast from 'react-hot-toast';
@@ -111,49 +113,30 @@ export default function Inventario() {
   };
 
   useEffect(() => {
-    const fetchProductos = async () => {
-      const { data: prodData } = await supabase.from('productos').select('*');
-      if (prodData) {
-        let costMap: Record<string, number> = {};
-        if (isAdmin) {
-          const { data: costData } = await supabase.from('costos_productos').select('*');
-          if (costData) {
-            costData.forEach((d: any) => {
-              const costVal = Number(d.costo_usd ?? d.costo ?? d.cost ?? 0);
-              costMap[d.id] = costVal;
-            });
-          }
-        }
-
-        const normalizedList = prodData.map((p: any) => {
-          const norm = normalizeProducto(p);
-          const costoVal = costMap[p.id] || costMap[norm.id] || Number(p.costo_usd || p.costo || 0);
-          return { ...norm, costo_usd: costoVal };
+    // Escuchar productos sin limite para ver todo el inventario
+    const q = query(collection(db, 'productos'));
+    let unsubProd: () => void;
+    let unsubCost: (() => void) | undefined;
+    
+    unsubProd = onSnapshot(q, (snap) => {
+      const prodData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
+      
+      if (isAdmin) {
+        if (unsubCost) unsubCost();
+        unsubCost = onSnapshot(collection(db, 'costos_productos'), (snapCost) => {
+          const costData: Record<string, number> = {};
+          snapCost.forEach(d => { costData[d.id] = d.data().costo_usd; });
+          
+          setProductos(prodData.map(p => ({ ...p, costo_usd: costData[p.id] || 0 })));
         });
-
-        setProductos(normalizedList);
+      } else {
+        setProductos(prodData);
       }
-    };
-
-    fetchProductos();
-
-    const channelProd = supabase
-      .channel('inventario_prod_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'productos' }, () => {
-        fetchProductos();
-      })
-      .subscribe();
-
-    const channelCost = supabase
-      .channel('inventario_cost_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'costos_productos' }, () => {
-        fetchProductos();
-      })
-      .subscribe();
+    });
 
     return () => {
-      supabase.removeChannel(channelProd);
-      supabase.removeChannel(channelCost);
+      unsubProd();
+      if (unsubCost) unsubCost();
     };
   }, [isAdmin]);
 
@@ -203,41 +186,52 @@ export default function Inventario() {
     setGuardando(true);
     
     try {
-      const precioNum = Number(precio) || 0;
+      // finalImagenUrl already holds the base64 compressed data URL from handlePhotoUpload
+      // because we called canvas.toDataURL()
       const payloadObj = {
         nombre: nombre.trim(),
-        precio_usd: precioNum,
-        precio: precioNum,
-        precio_venta: precioNum,
+        precio_usd: Number(precio) || 0,
         stock: Number(stock) || 0,
         unidad_medida: unidadMedida,
         categoria: categoria || 'Sin Categoría',
         codigo_barras: (codigo || "N/A").trim(),
-        imagen_url: imagenUrl || "",
-        imagen: imagenUrl || ""
+        imagen_url: imagenUrl || ""
       };
+      
+      const batch = writeBatch(db);
 
-      let idToUse = editandoId;
       if (editandoId) {
-        const { error } = await supabase.from('productos').update(payloadObj).eq('id', editandoId);
-        if (error) throw error;
-      } else {
-        idToUse = 'prod_' + Math.random().toString(36).substring(2, 9);
-        const { error } = await supabase.from('productos').insert({ id: idToUse, ...payloadObj });
-        if (error) throw error;
-      }
-
-      if (idToUse && (isAdmin || role === 'cajero')) {
-        if (isAdmin) {
-          await supabase.from('costos_productos').upsert({ id: idToUse, costo_usd: Number(costo) || 0 });
+        const prodRef = doc(db, 'productos', editandoId);
+        batch.update(prodRef, payloadObj);
+        
+        if (isAdmin || role === 'cajero') {
+          const costoRef = doc(db, 'costos_productos', editandoId);
+          // Only admins can see cost, but to play safe with permissions we let the backend handle it
+          // Wait, the rules say only admin can update cost.
+          if (isAdmin) {
+             batch.set(costoRef, { costo_usd: Number(costo) || 0 }, { merge: true });
+          }
         }
+      } else {
+        const newProdRef = doc(collection(db, 'productos'));
+        batch.set(newProdRef, payloadObj);
+        
+        const newCostoRef = doc(db, 'costos_productos', newProdRef.id);
+        batch.set(newCostoRef, { costo_usd: Number(costo) || 0 });
       }
-
+      
+      await batch.commit();
+      
       toast.success("Producto guardado correctamente", { id: loadingToast, duration: 2000 });
       setModalAbierto(false);
-    } catch (err: any) {
+    } catch (err) {
       console.error("Error detallado al guardar:", err);
-      toast.error("Error de permisos o conexión.", { id: loadingToast, duration: 5000 });
+      if (err instanceof Error && err.message.includes("offline")) {
+        toast.success("Guardado local (se sincronizará al conectar)", { id: loadingToast, duration: 4000 });
+        setModalAbierto(false);
+      } else {
+        toast.error("Error de permisos o conexión.", { id: loadingToast, duration: 5000 });
+      }
     } finally {
       setGuardando(false);
     }
@@ -247,10 +241,9 @@ export default function Inventario() {
     if(!confirm("¿Seguro que desea eliminar este producto?")) return;
     try {
       if (isAdmin) {
-        await supabase.from('costos_productos').delete().eq('id', id);
+        await deleteDoc(doc(db, 'costos_productos', id));
       }
-      const { error } = await supabase.from('productos').delete().eq('id', id);
-      if (error) throw error;
+      await deleteDoc(doc(db, 'productos', id));
       toast.success("Producto eliminado");
     } catch (err) {
       toast.error("Error al eliminar");
@@ -260,8 +253,8 @@ export default function Inventario() {
   const descargarCatalogo = async () => {
     const loadingToast = toast.loading("Generando catálogo...");
     try {
-      const { data: allProductos, error } = await supabase.from('productos').select('*');
-      if (error || !allProductos) throw new Error("No se pudieron obtener productos");
+      const snap = await getDocs(query(collection(db, 'productos')));
+      const allProductos = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
 
       const doc = new jsPDF();
       doc.setFont("helvetica", "bold");
