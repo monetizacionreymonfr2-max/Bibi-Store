@@ -44,7 +44,8 @@ export default defineConfig(({mode}) => {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,jpeg,json}'],
           cleanupOutdatedCaches: true,
           clientsClaim: true,
-          skipWaiting: true
+          skipWaiting: true,
+          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024
         }
       })
     ],
