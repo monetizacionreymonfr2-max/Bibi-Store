@@ -6,11 +6,12 @@ import { useAuth } from '../contexts/AuthContext';
 import { useConfig } from '../contexts/ConfigContext';
 import { Producto, CATEGORIAS_PRODUCTO } from '../types';
 import { formatUSD, formatBs, cn } from '../lib/utils';
-import { Plus, Edit2, Trash2, Search, X, Scan, Filter, FileDown } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, X, Scan, Filter, FileDown, FileCode } from 'lucide-react';
 import Scanner from '../components/Scanner';
 import toast from 'react-hot-toast';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { exportarProductosJSON, descargarJSON } from '../lib/exportProductos';
 
 export default function Inventario() {
   const { role } = useAuth();
@@ -382,11 +383,29 @@ export default function Inventario() {
 
         <div className="flex items-center gap-2 w-full md:w-auto">
           <button 
+            onClick={async () => {
+              const loadingToast = toast.loading("Exportando productos para Supabase...");
+              try {
+                const data = await exportarProductosJSON();
+                descargarJSON(data, 'productos.json');
+                console.log("EXPORTED PRODUCTOS JSON:", data);
+                toast.success(`Exportados ${data.length} productos a productos.json`, { id: loadingToast });
+              } catch (err) {
+                console.error(err);
+                toast.error("Error al exportar productos", { id: loadingToast });
+              }
+            }}
+            className="bg-emerald-600 text-white border-2 border-black px-3 py-2 font-bold uppercase tracking-wider text-xs hover:bg-black hover:text-white transition-all flex items-center gap-2 whitespace-nowrap"
+            title="Exportar productos.json para Supabase"
+          >
+            <FileCode size={16} /> <span className="hidden sm:inline">JSON Supabase</span>
+          </button>
+          <button 
             onClick={descargarCatalogo}
-            className="bg-black text-white border-2 border-black px-4 py-2 font-bold uppercase tracking-wider text-xs hover:bg-yellow-400 hover:text-black transition-all flex items-center gap-2 whitespace-nowrap"
+            className="bg-black text-white border-2 border-black px-3 py-2 font-bold uppercase tracking-wider text-xs hover:bg-yellow-400 hover:text-black transition-all flex items-center gap-2 whitespace-nowrap"
             title="Descargar Catálogo PDF"
           >
-            <FileDown size={16} /> <span className="hidden sm:inline">Descargar</span>
+            <FileDown size={16} /> <span className="hidden sm:inline">PDF</span>
           </button>
           <div className="relative flex-1 md:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />

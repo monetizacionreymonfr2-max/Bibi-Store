@@ -2,15 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
 import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 import { useConfig } from '../contexts/ConfigContext';
-import { Settings, Save } from 'lucide-react';
+import { Settings, Save, Download, Copy, FileCode, X, Check } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
+import { exportarProductosJSON, descargarJSON, ProductoExportJSON } from '../lib/exportProductos';
 
 export default function Ajustes() {
   const { tasaDolar } = useConfig();
   const { role } = useAuth();
   const [nuevaTasa, setNuevaTasa] = useState('');
   const [guardando, setGuardando] = useState(false);
+  
+  const [exportando, setExportando] = useState(false);
+  const [exportData, setExportData] = useState<ProductoExportJSON[] | null>(null);
+  const [modalExportAbierto, setModalExportAbierto] = useState(false);
+  const [copiado, setCopiado] = useState(false);
 
   useEffect(() => {
     if (tasaDolar) {
@@ -41,6 +47,33 @@ export default function Ajustes() {
     } finally {
       setGuardando(false);
     }
+  };
+
+  const handleExportarJSON = async () => {
+    setExportando(true);
+    const loadingToast = toast.loading("Obteniendo productos y costos de Firestore...");
+    try {
+      const data = await exportarProductosJSON();
+      setExportData(data);
+      descargarJSON(data, 'productos.json');
+      console.log("=== RESULTADO EXPORTACIÓN PRODUCTOS (SUPABASE) ===");
+      console.log(JSON.stringify(data, null, 2));
+      toast.success(`Exportados ${data.length} productos a productos.json`, { id: loadingToast });
+      setModalExportAbierto(true);
+    } catch (err) {
+      console.error(err);
+      toast.error("Error al exportar productos", { id: loadingToast });
+    } finally {
+      setExportando(false);
+    }
+  };
+
+  const copiarAlPortapapeles = () => {
+    if (!exportData) return;
+    navigator.clipboard.writeText(JSON.stringify(exportData, null, 2));
+    setCopiado(true);
+    toast.success("JSON copiado al portapapeles");
+    setTimeout(() => setCopiado(false), 2000);
   };
 
   return (
@@ -86,6 +119,44 @@ export default function Ajustes() {
                   <><Save size={20} /> Guardar</>
                 )}
               </button>
+            </div>
+          </section>
+
+          {/* Export section for Supabase Migration */}
+          <section className="bg-emerald-50 border-4 border-emerald-600 p-6 flex flex-col gap-4 shadow-[8px_8px_0px_rgba(5,150,105,1)] relative">
+            <h2 className="text-xl font-black uppercase tracking-widest text-black flex items-center gap-2">
+              <FileCode className="text-emerald-700" size={24} /> Exportar Productos para Supabase
+            </h2>
+            <p className="text-xs font-mono text-gray-700 uppercase tracking-widest leading-relaxed">
+              Obtiene los datos de <code className="bg-white px-1 py-0.5 border border-black font-bold">productos</code> y <code className="bg-white px-1 py-0.5 border border-black font-bold">costos_productos</code> desde Firestore y genera el archivo <code className="bg-white px-1 py-0.5 border border-black font-bold text-emerald-800">productos.json</code> con la estructura exacta:
+              <br />
+              <span className="font-mono text-[11px] text-emerald-900 font-bold block mt-1">
+                [ &#123; id, precio_usd, costo_usd, imagen_url &#125; ]
+              </span>
+            </p>
+            <div className="flex flex-wrap gap-3 mt-2">
+              <button 
+                type="button"
+                disabled={exportando}
+                onClick={handleExportarJSON}
+                className="bg-black text-white hover:bg-emerald-500 hover:text-black border-2 border-black font-bold px-6 py-4 uppercase tracking-widest flex items-center justify-center gap-2 transition-all text-sm disabled:opacity-50 shadow-[4px_4px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-1 hover:translate-y-1"
+              >
+                {exportando ? (
+                  <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full" />
+                ) : (
+                  <><Download size={20} /> Exportar y Descargar productos.json</>
+                )}
+              </button>
+
+              {exportData && (
+                <button
+                  type="button"
+                  onClick={() => setModalExportAbierto(true)}
+                  className="bg-white text-black hover:bg-black hover:text-white border-2 border-black font-bold px-6 py-4 uppercase tracking-widest flex items-center justify-center gap-2 transition-all text-sm"
+                >
+                  Ver / Copiar JSON
+                </button>
+              )}
             </div>
           </section>
           
@@ -135,6 +206,53 @@ export default function Ajustes() {
           </section>
         </form>
       </div>
+
+      {/* Modal Visualizador / Copiador de JSON */}
+      {modalExportAbierto && exportData && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+          <div className="bg-white border-4 border-black w-full max-w-3xl max-h-[85vh] flex flex-col shadow-[12px_12px_0px_rgba(0,0,0,1)]">
+            <div className="p-4 border-b-2 border-black bg-emerald-400 flex justify-between items-center">
+              <h3 className="font-black uppercase tracking-wider text-black flex items-center gap-2">
+                <FileCode size={20} /> productos.json ({exportData.length} ítems)
+              </h3>
+              <button 
+                onClick={() => setModalExportAbierto(false)}
+                className="bg-black text-white p-1 hover:bg-red-600 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-4 flex-1 overflow-y-auto bg-gray-900">
+              <pre className="font-mono text-xs text-emerald-400 whitespace-pre-wrap break-all leading-relaxed">
+                {JSON.stringify(exportData, null, 2)}
+              </pre>
+            </div>
+
+            <div className="p-4 border-t-2 border-black bg-gray-100 flex flex-wrap gap-3 justify-between items-center">
+              <p className="text-xs font-mono text-gray-600 uppercase">
+                {exportData.length} productos listos para Supabase
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={copiarAlPortapapeles}
+                  className="bg-black text-white border-2 border-black px-4 py-2 font-bold uppercase text-xs hover:bg-yellow-400 hover:text-black transition-all flex items-center gap-2"
+                >
+                  {copiado ? <Check size={16} /> : <Copy size={16} />}
+                  {copiado ? "Copiado!" : "Copiar JSON"}
+                </button>
+                <button
+                  onClick={() => descargarJSON(exportData, 'productos.json')}
+                  className="bg-emerald-500 text-black border-2 border-black px-4 py-2 font-bold uppercase text-xs hover:bg-black hover:text-white transition-all flex items-center gap-2"
+                >
+                  <Download size={16} /> Volver a Descargar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
