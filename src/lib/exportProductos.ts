@@ -21,37 +21,45 @@ export interface ProductoExportJSON {
  * ]
  */
 export async function exportarProductosJSON(): Promise<ProductoExportJSON[]> {
-  const prodSnap = await getDocs(collection(db, 'productos'));
+  let prodSnap;
+  try {
+    prodSnap = await getDocs(collection(db, 'productos'));
+  } catch (err: any) {
+    console.error("Error al obtener la colección 'productos' de Firestore:", err);
+    throw new Error(`Error al leer productos de Firestore: ${err?.message || err}`);
+  }
   
   const costosMap: Record<string, number> = {};
   try {
     const costSnap = await getDocs(collection(db, 'costos_productos'));
     costSnap.forEach((docSnap) => {
       const data = docSnap.data();
-      costosMap[docSnap.id] = typeof data.costo_usd === 'number' ? data.costo_usd : Number(data.costo || 0);
+      const val = data.costo_usd ?? data.costo ?? 0;
+      costosMap[docSnap.id] = typeof val === 'number' ? val : (Number(val) || 0);
     });
   } catch (err) {
-    console.warn("No se pudieron obtener costos_productos (posibles permisos de Firestore):", err);
+    console.warn("No se pudieron obtener costos_productos (usando fallback 0):", err);
   }
 
   const resultado: ProductoExportJSON[] = prodSnap.docs.map((docSnap) => {
     const data = docSnap.data();
     
-    // Mapeo de precio_usd / precio
-    const precioRaw = data.precio_usd !== undefined ? data.precio_usd : (data.precio !== undefined ? data.precio : 0);
-    const precio_usd = typeof precioRaw === 'number' ? precioRaw : Number(precioRaw) || 0;
+    // Mapeo flexible de precio
+    const precioRaw = data.precio_usd ?? data.precio ?? data.precio_unitario_usd ?? 0;
+    const precio_usd = typeof precioRaw === 'number' ? precioRaw : (Number(precioRaw) || 0);
 
-    // Mapeo de costo_usd
-    const costoRaw = costosMap[docSnap.id] !== undefined 
-      ? costosMap[docSnap.id] 
-      : (data.costo_usd !== undefined ? data.costo_usd : (data.costo !== undefined ? data.costo : 0));
-    const costo_usd = typeof costoRaw === 'number' ? costoRaw : Number(costoRaw) || 0;
+    // Mapeo flexible de costo
+    const costoRaw = costosMap[docSnap.id] ?? data.costo_usd ?? data.costo ?? 0;
+    const costo_usd = typeof costoRaw === 'number' ? costoRaw : (Number(costoRaw) || 0);
+
+    // Mapeo flexible de imagen
+    const imagen_url = String(data.imagen_url ?? data.imagen ?? data.url_imagen ?? data.foto_url ?? data.image ?? '');
 
     return {
       id: docSnap.id,
       precio_usd,
       costo_usd,
-      imagen_url: data.imagen_url || ''
+      imagen_url
     };
   });
 

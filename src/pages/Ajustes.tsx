@@ -60,9 +60,10 @@ export default function Ajustes() {
       console.log(JSON.stringify(data, null, 2));
       toast.success(`Exportados ${data.length} productos a productos.json`, { id: loadingToast });
       setModalExportAbierto(true);
-    } catch (err) {
-      console.error(err);
-      toast.error("Error al exportar productos", { id: loadingToast });
+    } catch (err: any) {
+      console.error("Error en handleExportarJSON:", err);
+      const errMsg = err?.message || "Error al exportar productos";
+      toast.error(errMsg, { id: loadingToast });
     } finally {
       setExportando(false);
     }

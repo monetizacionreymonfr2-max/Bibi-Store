@@ -136,7 +136,7 @@ service cloud.firestore {
     }
 
     match /costos_productos/{productoId} {
-      allow read: if isAdmin();
+      allow read: if true;
       allow create: if isAdminOrCajero() && isValidId(productoId) && isValidCostoProducto(incoming());
       allow update: if isAdmin() && isValidId(productoId);
       allow delete: if isAdmin() && isValidId(productoId);
