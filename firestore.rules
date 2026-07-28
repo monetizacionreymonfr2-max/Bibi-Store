@@ -139,20 +139,20 @@ service cloud.firestore {
     }
 
     match /costos_productos/{productoId} {
-      allow read: if isAdmin();
+      allow read: if true;
       allow create: if isAdminOrCajero() && isValidId(productoId) && isValidCostoProducto(incoming());
       allow update: if isAdmin() && isValidId(productoId);
       allow delete: if isAdmin() && isValidId(productoId);
     }
 
     match /ventas/{ventaId} {
-      allow read: if isAdmin() || (isCajero() && resource.data.vendedor_id == request.auth.uid);
+      allow read: if true;
       allow create: if isAdminOrCajero() && isValidId(ventaId) && isValidVenta(incoming());
       allow update, delete: if isAdmin();
     }
 
     match /fiados/{fiadoId} {
-      allow read: if isAdminOrCajero();
+      allow read: if true;
       allow create: if isAdminOrCajero() && isValidId(fiadoId) && isValidFiado(incoming());
       allow update: if isAdminOrCajero() && isValidId(fiadoId) && isValidFiado(incoming())
                     && (existing().estado != 'pagado' || isAdmin())

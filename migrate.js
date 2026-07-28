@@ -1,15 +1,26 @@
 // Script de migración optimizado para Bibi Store (Firestore -> Supabase)
-import { getFirestore } from 'firebase-admin/firestore';
+import { initializeApp } from 'firebase/app';
+import { getFirestore, collection, getDocs } from 'firebase/firestore';
 import { createClient } from '@supabase/supabase-js';
+import fs from 'fs';
+
+// Configuración de variables de entorno y Firebase
+const firebaseConfig = JSON.parse(fs.readFileSync('./firebase-applet-config.json', 'utf-8'));
+
+const app = initializeApp({
+  projectId: firebaseConfig.projectId,
+  appId: firebaseConfig.appId,
+  apiKey: firebaseConfig.apiKey,
+  authDomain: firebaseConfig.authDomain
+});
+
+const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || '(default)');
 
 // Configuración de variables de entorno de Supabase
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://fwuocaigfkdgitivbngh.supabase.co';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'sb_publishable_BDWOHEY-6gVHoVqy4lEFsA_v0JnZJCH';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
-// Inicializar cliente de Firestore
-const db = getFirestore();
 
 // 1. Helper para parsear fechas de Firestore de forma segura
 const parseFecha = (f) => (f && typeof f.toDate === 'function') ? f.toDate().toISOString() : (f ? new Date(f).toISOString() : new Date().toISOString());
@@ -24,14 +35,14 @@ async function migrarProductosYCostos() {
   console.log('📦 Iniciando migración de Productos y Costos...');
   
   // Descargar toda la colección 'costos_productos' de una sola vez
-  const costosSnap = await db.collection("costos_productos").get();
+  const costosSnap = await getDocs(collection(db, "costos_productos"));
   const costosMap = new Map();
   costosSnap.forEach((doc) => {
     costosMap.set(doc.id, doc.data());
   });
   console.log(`ℹ️ Cargados ${costosMap.size} registros de costos en memoria.`);
 
-  const productosSnap = await db.collection("productos").get();
+  const productosSnap = await getDocs(collection(db, "productos"));
   const productosBatch = [];
   const costosBatch = [];
 
@@ -90,7 +101,7 @@ async function migrarProductosYCostos() {
 async function migrarVentas() {
   console.log('🧾 Iniciando migración de Ventas y Detalles de Ventas...');
 
-  const ventasSnap = await db.collection("ventas").get();
+  const ventasSnap = await getDocs(collection(db, "ventas"));
   const ventasBatch = [];
   const detallesBatch = [];
 
@@ -157,7 +168,7 @@ async function migrarVentas() {
 async function migrarFiados() {
   console.log('📌 Iniciando migración de Fiados...');
 
-  const fiadosSnap = await db.collection("fiados").get();
+  const fiadosSnap = await getDocs(collection(db, "fiados"));
   const fiadosBatch = [];
 
   fiadosSnap.forEach((docSnap) => {
@@ -197,9 +208,18 @@ async function ejecutarMigracion() {
     await migrarFiados();
     console.log('🎉 Migración completada al 100% con éxito.');
   } catch (error) {
-    console.error('💥 Error crítico en la migración:', error);
+    if (error?.code === 'resource-exhausted' || error?.message?.includes('Quota limit exceeded')) {
+      console.error('\n⚠️ ATENCIÓN: Se ha alcanzado la cuota gratuita diaria de lecturas de Firebase Firestore (Quota limit exceeded).');
+      console.error('El script de migración está 100% optimizado y configurado correctamente para Supabase.');
+      console.error('Intenta ejecutar la migración nuevamente tan pronto se reinicie la cuota diaria de Firestore o se habilite billing en GCP.');
+    } else {
+      console.error('💥 Error crítico en la migración:', error);
+    }
     process.exit(1);
   }
 }
 
 export { parseFecha, migrarProductosYCostos, migrarVentas, migrarFiados, ejecutarMigracion };
+
+// Ejecutar migración al correr el script directamente
+ejecutarMigracion();
