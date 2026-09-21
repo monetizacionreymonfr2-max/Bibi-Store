@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
 import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 import { useConfig } from '../contexts/ConfigContext';
-import { Settings, Save, Download, Copy, FileCode, X, Check, Database, UploadCloud, RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Settings, Save, Download, Copy, FileCode, X, Check, Database, UploadCloud, RefreshCw, AlertCircle, CheckCircle2, Server, Terminal, ExternalLink, ShieldCheck, Globe } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { exportarProductosJSON, descargarJSON, ProductoExportJSON } from '../lib/exportProductos';
@@ -30,6 +30,12 @@ export default function Ajustes() {
   const [progresoMigracion, setProgresoMigracion] = useState<MigrationProgress | null>(null);
   const [migracionExito, setMigracionExito] = useState<string | null>(null);
   const [migracionError, setMigracionError] = useState<string | null>(null);
+
+  // Estados para Despliegue en VPS (DigitalOcean)
+  const [vpsIp, setVpsIp] = useState('64.227.15.171');
+  const [copiadoVpsSsh, setCopiadoVpsSsh] = useState(false);
+  const [copiadoVpsScript, setCopiadoVpsScript] = useState(false);
+  const [copiadoVpsComandoDirecto, setCopiadoVpsComandoDirecto] = useState(false);
 
   // Generador de SQL / Importación JSON
   const [jsonPastedText, setJsonPastedText] = useState('');
@@ -218,6 +224,122 @@ export default function Ajustes() {
     setTimeout(() => setSqlCopiado(false), 2000);
   };
 
+  const copiarTexto = (texto: string, setEstado: (v: boolean) => void, mensaje: string) => {
+    navigator.clipboard.writeText(texto);
+    setEstado(true);
+    toast.success(mensaje);
+    setTimeout(() => setEstado(false), 2000);
+  };
+
+  const descargarArchivoTexto = (nombre: string, contenido: string, tipo = 'text/plain') => {
+    const blob = new Blob([contenido], { type: tipo });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nombre;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success(`Descargado ${nombre}`);
+  };
+
+  const getDeployScriptContent = () => `#!/usr/bin/env bash
+# SCRIPT DE DESPLIEGUE AUTOMÁTICO DE BIBI STORE EN DIGITALOCEAN
+# IP: ${vpsIp}
+set -e
+if [ "$EUID" -ne 0 ]; then echo "Ejecuta como root (o sudo)"; exit 1; fi
+
+# 1. Swap de 1GB para evitar out-of-memory en 1GB RAM
+if [ ! -f /swapfile ]; then
+  fallocate -l 1G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=1024
+  chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+
+# 2. Actualizar sistema e instalar Node.js 20 y Nginx
+apt-get update -y && apt-get install -y curl git ufw nginx unzip
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs
+
+# 3. Cortafuegos UFW
+ufw allow OpenSSH || true
+ufw allow 'Nginx Full' || true
+ufw --force enable || true
+
+# 4. Compilar y publicar aplicación
+mkdir -p /var/www/bibi-store && cd /var/www/bibi-store
+if [ -f "package.json" ]; then
+  export NODE_OPTIONS="--max-old-space-size=768"
+  npm install && npm run build
+fi
+
+# 5. Configurar Nginx para SPA (React Router y PWA)
+cat << 'EOF' > /etc/nginx/sites-available/bibi-store
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name ${vpsIp} _;
+    root /var/www/bibi-store/dist;
+    index index.html;
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript image/svg+xml;
+
+    location ~* \\.(?:ico|css|js|gif|jpe?g|png|woff2?|svg)$ {
+        expires 30d;
+        add_header Cache-Control "public, max-age=2592000, immutable";
+    }
+
+    location ~* (sw\\.js|registerSW\\.js|manifest\\.webmanifest|index\\.html)$ {
+        expires -1;
+        add_header Cache-Control "no-store, no-cache";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+EOF
+
+rm -f /etc/nginx/sites-enabled/default
+ln -sf /etc/nginx/sites-available/bibi-store /etc/nginx/sites-enabled/
+chown -R www-data:www-data /var/www/bibi-store/dist || true
+chmod -R 755 /var/www/bibi-store/dist || true
+nginx -t && systemctl restart nginx && systemctl enable nginx
+
+echo "========================================================="
+echo "¡Bibi Store activo y en línea en http://${vpsIp}!"
+echo "Recuerda autorizar ${vpsIp} en Firebase Console > Authentication > Authorized domains"
+echo "========================================================="
+`;
+
+  const getNginxConfContent = () => `server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name ${vpsIp} localhost;
+
+    root /var/www/bibi-store/dist;
+    index index.html;
+
+    gzip on;
+    gzip_types text/plain text/css text/xml application/json application/javascript application/rss+xml image/svg+xml;
+
+    location ~* \\.(?:ico|css|js|gif|jpe?g|png|woff2?|svg)$ {
+        expires 30d;
+        add_header Cache-Control "public, max-age=2592000, immutable";
+    }
+
+    location ~* (sw\\.js|registerSW\\.js|manifest\\.webmanifest|index\\.html)$ {
+        expires -1;
+        add_header Cache-Control "no-store, no-cache";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+`;
+
   return (
     <div className="flex flex-col h-full bg-white max-w-4xl mx-auto w-full border-x-2 border-black overflow-y-auto pb-24">
       <div className="p-6 border-b-2 border-black flex items-center gap-3 bg-gray-50">
@@ -261,6 +383,190 @@ export default function Ajustes() {
                   <><Save size={20} /> Guardar</>
                 )}
               </button>
+            </div>
+          </section>
+
+          {/* VPS DigitalOcean Migration & Deployment Section */}
+          <section className="bg-gradient-to-br from-emerald-50 to-teal-50 border-4 border-black p-6 flex flex-col gap-5 shadow-[8px_8px_0px_rgba(0,0,0,1)] relative">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b-2 border-black pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-emerald-500 text-white border-2 border-black shadow-[2px_2px_0px_rgba(0,0,0,1)]">
+                  <Server size={28} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-black uppercase tracking-widest text-black">
+                      Despliegue en tu VPS DigitalOcean
+                    </h2>
+                    <span className="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 uppercase tracking-widest border border-black">
+                      Droplet Activo
+                    </span>
+                  </div>
+                  <p className="text-xs font-mono text-gray-700 uppercase tracking-widest mt-0.5">
+                    ubuntu-s-1vcpu-1gb-nyc1 • Ubuntu 24.04 (LTS) x64 • IP: {vpsIp}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-black">IP VPS:</label>
+                <input 
+                  type="text"
+                  value={vpsIp}
+                  onChange={e => setVpsIp(e.target.value)}
+                  className="px-2 py-1 border-2 border-black font-mono text-xs font-bold bg-white focus:outline-none w-36"
+                  placeholder="64.227.15.171"
+                />
+              </div>
+            </div>
+
+            {/* Especificaciones y optimización de memoria */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="bg-white border-2 border-black p-3">
+                <span className="text-[10px] font-black uppercase text-gray-500 block">Arquitectura</span>
+                <span className="text-xs font-bold font-mono text-black">Nginx SPA + React PWA</span>
+                <p className="text-[10px] text-gray-500 mt-1">Usa solo ~15MB RAM en tu droplet de 1GB.</p>
+              </div>
+              <div className="bg-white border-2 border-black p-3">
+                <span className="text-[10px] font-black uppercase text-gray-500 block">Memoria Swap</span>
+                <span className="text-xs font-bold font-mono text-emerald-700">1GB Swap Automático</span>
+                <p className="text-[10px] text-gray-500 mt-1">Garantiza compilación sin saturar la RAM.</p>
+              </div>
+              <div className="bg-white border-2 border-black p-3">
+                <span className="text-[10px] font-black uppercase text-gray-500 block">Seguridad & Red</span>
+                <span className="text-xs font-bold font-mono text-black">Firewall UFW (80, 443, 22)</span>
+                <p className="text-[10px] text-gray-500 mt-1">Puertos web abiertos y SSH protegido.</p>
+              </div>
+            </div>
+
+            {/* Pasos de instalación */}
+            <div className="space-y-4">
+              {/* Paso 1: Conexión */}
+              <div className="bg-white border-2 border-black p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-6 h-6 bg-black text-white font-black text-xs flex items-center justify-center">1</span>
+                    <h3 className="text-xs font-black uppercase tracking-widest text-black">Conectarse al Droplet</h3>
+                  </div>
+                  <span className="text-[10px] font-mono text-gray-500 uppercase">Vía Web Console o Terminal</span>
+                </div>
+                <p className="text-xs font-mono text-gray-600">
+                  En tu panel de DigitalOcean, haz clic en el botón azul <strong className="text-black">"Web Console"</strong> de tu droplet, o ejecuta desde tu terminal:
+                </p>
+                <div className="flex items-center justify-between bg-gray-900 text-green-400 p-2.5 font-mono text-xs border border-black">
+                  <span>ssh root@{vpsIp}</span>
+                  <button
+                    type="button"
+                    onClick={() => copiarTexto(`ssh root@${vpsIp}`, setCopiadoVpsSsh, "Comando SSH copiado")}
+                    className="ml-2 bg-gray-800 hover:bg-gray-700 text-white px-2 py-1 text-[11px] font-bold uppercase flex items-center gap-1 transition-colors"
+                  >
+                    {copiadoVpsSsh ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+                    {copiadoVpsSsh ? "Copiado" : "Copiar"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Paso 2: Script Automático */}
+              <div className="bg-white border-2 border-black p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-6 h-6 bg-black text-white font-black text-xs flex items-center justify-center">2</span>
+                    <h3 className="text-xs font-black uppercase tracking-widest text-black">Comando de Despliegue en la VPS</h3>
+                  </div>
+                  <span className="text-[10px] font-mono text-gray-500 uppercase">Instalación 100% Automática</span>
+                </div>
+                <p className="text-xs font-mono text-gray-600">
+                  Copia y pega este comando en la consola de tu VPS para instalar Node.js 20, Nginx, compilar Bibi Store y configurar el servidor web:
+                </p>
+                
+                <div className="bg-gray-900 text-gray-100 p-3 font-mono text-[11px] border border-black space-y-2 overflow-x-auto">
+                  <div className="text-emerald-400 font-bold"># Comando de 1 solo clic (pegar directamente en tu consola):</div>
+                  <div className="text-yellow-300 break-all select-all font-bold">
+                    curl -fsSL https://ais-pre-gblqqchksfkcg6b6rsqrxx-48346512190.us-east1.run.app/instalar.sh | bash
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => copiarTexto(
+                      `curl -fsSL https://ais-pre-gblqqchksfkcg6b6rsqrxx-48346512190.us-east1.run.app/instalar.sh | bash`,
+                      setCopiadoVpsComandoDirecto,
+                      "¡Comando de instalación copiado!"
+                    )}
+                    className="bg-black text-white hover:bg-emerald-600 border-2 border-black font-bold px-4 py-2 text-xs uppercase tracking-widest flex items-center gap-2 transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)]"
+                  >
+                    {copiadoVpsComandoDirecto ? <Check size={16} /> : <Copy size={16} />}
+                    {copiadoVpsComandoDirecto ? "¡Comando Copiado!" : "Copiar Comando de 1 Clic"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => descargarArchivoTexto('deploy-vps.sh', getDeployScriptContent(), 'application/x-sh')}
+                    className="bg-white text-black hover:bg-black hover:text-white border-2 border-black font-bold px-4 py-2 text-xs uppercase tracking-widest flex items-center gap-2 transition-all"
+                  >
+                    <Download size={16} /> Descargar deploy-vps.sh
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => descargarArchivoTexto('nginx.conf', getNginxConfContent(), 'text/plain')}
+                    className="bg-white text-black hover:bg-black hover:text-white border-2 border-black font-bold px-4 py-2 text-xs uppercase tracking-widest flex items-center gap-2 transition-all"
+                  >
+                    <Download size={16} /> Descargar nginx.conf
+                  </button>
+                </div>
+              </div>
+
+              {/* Paso 3: Autorizar Dominio en Firebase */}
+              <div className="bg-amber-50 border-2 border-amber-600 p-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-6 h-6 bg-amber-600 text-white font-black text-xs flex items-center justify-center">3</span>
+                  <h3 className="text-xs font-black uppercase tracking-widest text-amber-950 flex items-center gap-1.5">
+                    <ShieldCheck size={16} className="text-amber-700" />
+                    Paso Obligatorio: Autorizar la IP en Firebase Authentication
+                  </h3>
+                </div>
+                <p className="text-xs font-mono text-amber-900 leading-relaxed">
+                  Para que el inicio de sesión con Google funcione en tu nueva VPS sin mostrar error <code className="bg-white px-1 border border-amber-400 font-bold">auth/unauthorized-domain</code>:
+                </p>
+                <ol className="list-decimal list-inside text-xs font-mono text-amber-950 space-y-1 pl-1">
+                  <li>Abre la consola de Firebase en tu proyecto.</li>
+                  <li>Dirígete a <strong>Authentication → Ajustes (Settings) → Dominios Autorizados</strong>.</li>
+                  <li>Haz clic en <strong>Agregar dominio</strong> y escribe: <code className="bg-white px-1.5 py-0.5 border border-black font-bold text-black">{vpsIp}</code></li>
+                </ol>
+                <div className="pt-1">
+                  <a
+                    href="https://console.firebase.google.com/project/gen-lang-client-0621684486/authentication/settings"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 bg-amber-600 text-white hover:bg-black px-3 py-1.5 text-xs font-bold uppercase tracking-wider border border-black transition-colors"
+                  >
+                    Abrir Ajustes de Firebase <ExternalLink size={14} />
+                  </a>
+                </div>
+              </div>
+
+              {/* Paso 4: Acceso Final */}
+              <div className="bg-white border-2 border-black p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-widest text-black flex items-center gap-1.5">
+                    <Globe size={16} className="text-emerald-600" />
+                    Tu URL de Acceso en la VPS:
+                  </h4>
+                  <p className="text-xs font-mono text-gray-600 mt-0.5">
+                    Una vez completado el script, tu tienda estará disponible en:
+                  </p>
+                </div>
+                <a
+                  href={`http://${vpsIp}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 font-black text-xs uppercase tracking-widest border-2 border-black flex items-center gap-2 shadow-[2px_2px_0px_rgba(0,0,0,1)] transition-all"
+                >
+                  Abrir http://{vpsIp} <ExternalLink size={14} />
+                </a>
+              </div>
             </div>
           </section>
 
