@@ -39,6 +39,171 @@ async function getBlobFromUrlOrBase64(urlOrBase64: string): Promise<{ blob: Blob
   return null;
 }
 
+export function generateSQLFromJSON(jsonData: any[], tasaDolar: number = 1): string {
+  if (!Array.isArray(jsonData) || jsonData.length === 0) {
+    return '-- El archivo JSON está vacío o no es un arreglo válido.';
+  }
+
+  function escapeSql(str: any): string {
+    if (str === null || str === undefined) return 'NULL';
+    const s = String(str).replace(/'/g, "''");
+    return `'${s}'`;
+  }
+
+  function numSql(val: any): string {
+    const n = Number(val);
+    return isNaN(n) ? '0' : n.toString();
+  }
+
+  // Generar VALUES para UPSERT por id
+  const valuesSql = jsonData.map(item => {
+    const id = escapeSql(item.id || item.codigo_barra || item.codigo_barras);
+    const precio_usd = numSql(item.precio_usd ?? item.precio ?? 0);
+    const costo_usd = numSql(item.costo_usd ?? item.costo ?? 0);
+    const precio_bs = numSql((Number(precio_usd) * tasaDolar).toFixed(2));
+    const imagen_url = escapeSql(item.imagen_url ?? item.imagen ?? item.url_imagen ?? '');
+    const nombre = escapeSql(item.nombre ?? '');
+    const categoria = escapeSql(item.categoria ?? 'Sin Categoría');
+    const stock = numSql(item.stock ?? 0);
+
+    return `(${id}, ${precio_usd}, ${costo_usd}, ${precio_bs}, ${imagen_url}, ${nombre}, ${categoria}, ${stock})`;
+  }).join(',\n  ');
+
+  return `-- ==========================================================
+-- SCRIPT AUTOMÁTICO DE DDL / UPSERT PARA SUPABASE SQL EDITOR
+-- Generado el: ${new Date().toLocaleString()}
+-- Total de productos: ${jsonData.length}
+-- ==========================================================
+
+-- 1. Asegurar que la tabla "productos" exista en Supabase
+CREATE TABLE IF NOT EXISTS productos (
+  id TEXT PRIMARY KEY,
+  codigo_barra TEXT,
+  nombre TEXT,
+  categoria TEXT,
+  precio_usd NUMERIC(10,2) DEFAULT 0,
+  costo_usd NUMERIC(10,2) DEFAULT 0,
+  precio_bs NUMERIC(10,2) DEFAULT 0,
+  stock INT DEFAULT 0,
+  imagen_url TEXT,
+  activo BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. Insertar / Actualizar productos, precios, costos e imágenes
+INSERT INTO productos (id, precio_usd, costo_usd, precio_bs, imagen_url, nombre, categoria, stock)
+VALUES
+  ${valuesSql}
+ON CONFLICT (id) 
+DO UPDATE SET
+  precio_usd = EXCLUDED.precio_usd,
+  costo_usd = EXCLUDED.costo_usd,
+  precio_bs = EXCLUDED.precio_bs,
+  imagen_url = CASE 
+    WHEN EXCLUDED.imagen_url IS NOT NULL AND EXCLUDED.imagen_url != '' THEN EXCLUDED.imagen_url 
+    ELSE productos.imagen_url 
+  END,
+  nombre = CASE 
+    WHEN EXCLUDED.nombre IS NOT NULL AND EXCLUDED.nombre != '' THEN EXCLUDED.nombre 
+    ELSE productos.nombre 
+  END,
+  categoria = CASE 
+    WHEN EXCLUDED.categoria IS NOT NULL AND EXCLUDED.categoria != 'Sin Categoría' THEN EXCLUDED.categoria 
+    ELSE productos.categoria 
+  END;
+
+-- Mensaje de verificación
+SELECT count(*) AS total_productos_actualizados FROM productos;
+`;
+}
+
+export async function handleDirectJSONImportToSupabase(
+  supabaseUrl: string,
+  supabaseKey: string,
+  jsonData: any[],
+  tasaDolar: number = 1,
+  onProgress?: (p: MigrationProgress) => void
+) {
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error('Debe proporcionar la URL y la API Key de Supabase.');
+  }
+
+  if (!Array.isArray(jsonData) || jsonData.length === 0) {
+    throw new Error('El archivo o texto JSON proporcionado está vacío o no es un arreglo.');
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseKey);
+  const total = jsonData.length;
+
+  onProgress?.({
+    current: 0,
+    total,
+    statusText: `Preparando ${total} productos desde el archivo JSON...`,
+    percent: 10
+  });
+
+  const productosMapeados = jsonData.map((item, idx) => {
+    const id = String(item.id || item.codigo_barra || item.codigo_barras || `prod_${idx + 1}`);
+    const precio_usd = Number(item.precio_usd ?? item.precio ?? 0);
+    const costo_usd = Number(item.costo_usd ?? item.costo ?? 0);
+    return {
+      id,
+      codigo_barra: String(item.codigo_barra || item.codigo_barras || id),
+      nombre: String(item.nombre || 'Producto importado'),
+      categoria: String(item.categoria || 'Sin Categoría'),
+      precio_usd,
+      costo_usd,
+      precio_bs: Number((precio_usd * tasaDolar).toFixed(2)),
+      stock: Number(item.stock ?? 0),
+      imagen_url: String(item.imagen_url ?? item.imagen ?? item.url_imagen ?? ''),
+      activo: item.activo !== false
+    };
+  });
+
+  // Procesar en lotes de 20 para evitar sobrecargar la API
+  const batchSize = 20;
+  let subidos = 0;
+
+  for (let i = 0; i < total; i += batchSize) {
+    const batch = productosMapeados.slice(i, i + batchSize);
+    const currentNum = Math.min(i + batchSize, total);
+    const percent = Math.round((currentNum / total) * 90);
+
+    onProgress?.({
+      current: currentNum,
+      total,
+      statusText: `Subiendo lote (${currentNum}/${total}) a Supabase DB...`,
+      percent
+    });
+
+    const { error } = await supabase
+      .from('productos')
+      .upsert(batch, { onConflict: 'id' });
+
+    if (error) {
+      // Intentar onConflict: 'codigo_barra' si 'id' falla
+      const { error: err2 } = await supabase
+        .from('productos')
+        .upsert(batch, { onConflict: 'codigo_barra' });
+
+      if (err2) {
+        throw new Error(`Error al insertar lote ${i / batchSize + 1}: ${err2.message}`);
+      }
+    }
+
+    subidos += batch.length;
+  }
+
+  onProgress?.({
+    current: total,
+    total,
+    statusText: '¡Importación de JSON completada exitosamente!',
+    percent: 100
+  });
+
+  return { totalMigrados: subidos };
+}
+
 export async function handleAutomatedMigration(
   supabaseUrl: string,
   supabaseKey: string,

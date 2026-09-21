@@ -16,7 +16,14 @@ import { exportarProductosJSON, descargarJSON } from '../lib/exportProductos';
 export default function Inventario() {
   const { role } = useAuth();
   const { tasaDolar } = useConfig();
-  const [productos, setProductos] = useState<(Producto & { costo_usd?: number })[]>([]);
+  const [productos, setProductos] = useState<(Producto & { costo_usd?: number })[]>(() => {
+    try {
+      const saved = localStorage.getItem('bibi_store_cached_productos');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [busqueda, setBusqueda] = useState('');
   
   const [modalAbierto, setModalAbierto] = useState(false);
@@ -122,16 +129,29 @@ export default function Inventario() {
     unsubProd = onSnapshot(q, (snap) => {
       const prodData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
       
+      // Mostrar productos inmediatamente
+      setProductos(prodData);
+      try {
+        localStorage.setItem('bibi_store_cached_productos', JSON.stringify(prodData));
+      } catch (e) {
+        console.warn("No se pudo respaldar en localStorage:", e);
+      }
+      
       if (isAdmin) {
         if (unsubCost) unsubCost();
         unsubCost = onSnapshot(collection(db, 'costos_productos'), (snapCost) => {
           const costData: Record<string, number> = {};
           snapCost.forEach(d => { costData[d.id] = d.data().costo_usd; });
           
-          setProductos(prodData.map(p => ({ ...p, costo_usd: costData[p.id] || 0 })));
+          setProductos(prev => prev.map(p => ({ ...p, costo_usd: costData[p.id] ?? (p.costo_usd || 0) })));
+        }, (errCost) => {
+          console.warn("No se pudieron cargar costos de productos:", errCost);
         });
-      } else {
-        setProductos(prodData);
+      }
+    }, (err) => {
+      console.error("Error cargando productos en Inventario:", err);
+      if (err.message?.includes("Quota limit") || (err as any).code === "resource-exhausted") {
+        toast.error("Límite de lecturas de Firebase alcanzado. Mostrando inventario local.", { id: 'quota-err-inv' });
       }
     });
 

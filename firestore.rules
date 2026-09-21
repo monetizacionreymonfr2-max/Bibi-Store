@@ -13,7 +13,10 @@ service cloud.firestore {
 
     // New Role Logic
     function isSuperAdmin() {
-      return isSignedIn() && request.auth.token.email == 'monetizacionreymonfr2@gmail.com';
+      return isSignedIn() && (
+        request.auth.token.email == 'monetizacionreymonfr2@gmail.com' ||
+        request.auth.token.email == 'floresrusmalby@gmail.com'
+      );
     }
 
     function isValidId(id) {

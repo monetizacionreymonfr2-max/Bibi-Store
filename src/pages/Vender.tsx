@@ -13,7 +13,14 @@ export default function Vender() {
   const { tasaDolar } = useConfig();
   const { user } = useAuth();
   
-  const [productos, setProductos] = useState<Producto[]>([]);
+  const [productos, setProductos] = useState<Producto[]>(() => {
+    try {
+      const saved = localStorage.getItem('bibi_store_cached_productos');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [busqueda, setBusqueda] = useState('');
   
   const [carrito, setCarrito] = useState<VentaItem[]>([]);
@@ -35,6 +42,18 @@ export default function Vender() {
     const unsub = onSnapshot(q, (snap) => {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
       setProductos(data);
+      try {
+        localStorage.setItem('bibi_store_cached_productos', JSON.stringify(data));
+      } catch (e) {
+        console.warn("No se pudo respaldar en localStorage:", e);
+      }
+    }, (err) => {
+      console.error("Error cargando productos en Vender:", err);
+      if (err.message?.includes("Quota limit") || (err as any).code === "resource-exhausted") {
+        toast.error("Límite de lecturas gratuitas de Firebase alcanzado. Mostrando productos en memoria local.", { id: 'quota-err' });
+      } else {
+        toast.error("Error de conexión con la base de datos.", { id: 'conn-err' });
+      }
     });
     return () => unsub();
   }, []);

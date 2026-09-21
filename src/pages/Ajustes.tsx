@@ -6,7 +6,7 @@ import { Settings, Save, Download, Copy, FileCode, X, Check, Database, UploadClo
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { exportarProductosJSON, descargarJSON, ProductoExportJSON } from '../lib/exportProductos';
-import { handleAutomatedMigration, MigrationProgress } from '../lib/supabaseMigration';
+import { handleAutomatedMigration, handleDirectJSONImportToSupabase, generateSQLFromJSON, MigrationProgress } from '../lib/supabaseMigration';
 
 export default function Ajustes() {
   const { tasaDolar } = useConfig();
@@ -19,7 +19,7 @@ export default function Ajustes() {
   const [modalExportAbierto, setModalExportAbierto] = useState(false);
   const [copiado, setCopiado] = useState(false);
 
-  // Estados para Migración Automática Supabase
+  // Estados para Migración Automática y JSON Supabase
   const [supabaseUrl, setSupabaseUrl] = useState(() => 
     import.meta.env.VITE_SUPABASE_URL || localStorage.getItem('supabase_mig_url') || ''
   );
@@ -30,6 +30,12 @@ export default function Ajustes() {
   const [progresoMigracion, setProgresoMigracion] = useState<MigrationProgress | null>(null);
   const [migracionExito, setMigracionExito] = useState<string | null>(null);
   const [migracionError, setMigracionError] = useState<string | null>(null);
+
+  // Generador de SQL / Importación JSON
+  const [jsonPastedText, setJsonPastedText] = useState('');
+  const [sqlGenerado, setSqlGenerado] = useState<string | null>(null);
+  const [modalSqlAbierto, setModalSqlAbierto] = useState(false);
+  const [sqlCopiado, setSqlCopiado] = useState(false);
 
   useEffect(() => {
     if (tasaDolar) {
@@ -122,12 +128,94 @@ export default function Ajustes() {
     }
   };
 
+  const parseJsonSource = (): any[] => {
+    let sourceData = exportData;
+    if (jsonPastedText.trim()) {
+      try {
+        sourceData = JSON.parse(jsonPastedText.trim());
+      } catch (err) {
+        throw new Error("El texto del JSON no es un formato válido. Revisa el contenido.");
+      }
+    }
+    if (!sourceData || !Array.isArray(sourceData) || sourceData.length === 0) {
+      throw new Error("No hay datos JSON cargados. Pega el JSON o sube el archivo productos.json.");
+    }
+    return sourceData;
+  };
+
+  const handleGenerarSQLScript = () => {
+    try {
+      const data = parseJsonSource();
+      const sql = generateSQLFromJSON(data, Number(nuevaTasa) || tasaDolar || 1);
+      setSqlGenerado(sql);
+      setModalSqlAbierto(true);
+      toast.success(`Script SQL generado para ${data.length} productos`);
+    } catch (err: any) {
+      toast.error(err.message || "Error al generar SQL");
+    }
+  };
+
+  const handleFileUploadJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target?.result as string;
+      if (text) {
+        setJsonPastedText(text);
+        toast.success(`Archivo "${file.name}" cargado (${text.length} caracteres)`);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleImportarJSONDirecto = async () => {
+    if (!supabaseUrl.trim() || !supabaseKey.trim()) {
+      toast.error("Por favor ingresa la URL y API Key de Supabase.");
+      return;
+    }
+    try {
+      const data = parseJsonSource();
+      setMigrando(true);
+      setMigracionError(null);
+      setMigracionExito(null);
+      
+      const toastId = toast.loading(`Importando ${data.length} productos directamente a Supabase...`);
+      const res = await handleDirectJSONImportToSupabase(
+        supabaseUrl.trim(),
+        supabaseKey.trim(),
+        data,
+        Number(nuevaTasa) || tasaDolar || 1,
+        (p) => setProgresoMigracion(p)
+      );
+
+      const msj = `¡Importación completada! Se insertaron/actualizaron ${res.totalMigrados} productos en Supabase.`;
+      setMigracionExito(msj);
+      toast.success(msj, { id: toastId, duration: 6000 });
+    } catch (err: any) {
+      console.error(err);
+      const errMsg = err?.message || "Error al importar JSON a Supabase";
+      setMigracionError(errMsg);
+      toast.error(errMsg);
+    } finally {
+      setMigrando(false);
+    }
+  };
+
   const copiarAlPortapapeles = () => {
     if (!exportData) return;
     navigator.clipboard.writeText(JSON.stringify(exportData, null, 2));
     setCopiado(true);
     toast.success("JSON copiado al portapapeles");
     setTimeout(() => setCopiado(false), 2000);
+  };
+
+  const copiarSqlAlPortapapeles = () => {
+    if (!sqlGenerado) return;
+    navigator.clipboard.writeText(sqlGenerado);
+    setSqlCopiado(true);
+    toast.success("Script SQL copiado al portapapeles!");
+    setTimeout(() => setSqlCopiado(false), 2000);
   };
 
   return (
@@ -323,6 +411,64 @@ export default function Ajustes() {
               )}
             </div>
           </section>
+
+          {/* Section: Cargar productos.json / Generador de Script SQL para Supabase */}
+          <section className="bg-purple-50 border-4 border-purple-600 p-6 flex flex-col gap-4 shadow-[8px_8px_0px_rgba(147,51,234,1)] relative">
+            <h2 className="text-xl font-black uppercase tracking-widest text-black flex items-center gap-2">
+              <FileCode className="text-purple-700" size={24} /> Generador de Script SQL & Carga de productos.json
+            </h2>
+            <p className="text-xs font-mono text-gray-700 uppercase tracking-widest leading-relaxed">
+              Si la cuota de Firestore se superó o prefieres migrar vía SQL directo sin consumo de API, sube o pega tu archivo <code className="bg-white px-1 border border-black font-bold">productos.json</code> para generar el Script SQL listo para ejecutar en el <strong>Supabase SQL Editor</strong>.
+            </p>
+
+            {/* Selector de Archivo o Textarea */}
+            <div className="flex flex-col gap-3 bg-white p-4 border-2 border-black">
+              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+                <label className="text-xs font-black uppercase tracking-widest text-black">
+                  1. Sube tu archivo productos.json:
+                </label>
+                <input 
+                  type="file" 
+                  accept=".json,application/json"
+                  onChange={handleFileUploadJSON}
+                  className="text-xs font-mono text-gray-600 file:mr-3 file:py-2 file:px-4 file:border-2 file:border-black file:text-xs file:font-bold file:bg-purple-100 file:text-purple-900 hover:file:bg-purple-200 cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-black uppercase tracking-widest text-black mb-1">
+                  O Pega el contenido de tu productos.json aquí:
+                </label>
+                <textarea 
+                  rows={4}
+                  placeholder='[ { "id": "prod_1", "precio_usd": 2.50, "costo_usd": 1.20, "imagen_url": "https://..." } ]'
+                  value={jsonPastedText}
+                  onChange={e => setJsonPastedText(e.target.value)}
+                  className="w-full p-3 border-2 border-black font-mono text-xs focus:outline-none focus:border-purple-600 bg-gray-50"
+                />
+              </div>
+            </div>
+
+            {/* Botones de acción */}
+            <div className="flex flex-wrap gap-3 mt-1">
+              <button 
+                type="button"
+                onClick={handleGenerarSQLScript}
+                className="bg-purple-600 text-white hover:bg-black hover:text-white border-2 border-black font-bold px-6 py-4 uppercase tracking-widest flex items-center justify-center gap-2 transition-all text-sm shadow-[4px_4px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-1 hover:translate-y-1"
+              >
+                <FileCode size={20} /> Generar Script SQL para Supabase Editor
+              </button>
+
+              <button 
+                type="button"
+                disabled={migrando || (!supabaseUrl.trim() || !supabaseKey.trim())}
+                onClick={handleImportarJSONDirecto}
+                className="bg-black text-white hover:bg-purple-600 hover:text-white border-2 border-black font-bold px-6 py-4 uppercase tracking-widest flex items-center justify-center gap-2 transition-all text-sm disabled:opacity-50"
+              >
+                <UploadCloud size={20} /> Importar JSON a Supabase por API
+              </button>
+            </div>
+          </section>
           
           {(role === 'admin' || role === 'superadmin') && (
             <section className="bg-gray-50 border-2 border-dashed border-gray-400 hover:border-black transition-colors p-6 flex flex-col gap-2">
@@ -410,6 +556,49 @@ export default function Ajustes() {
                   className="bg-emerald-500 text-black border-2 border-black px-4 py-2 font-bold uppercase text-xs hover:bg-black hover:text-white transition-all flex items-center gap-2"
                 >
                   <Download size={16} /> Volver a Descargar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal Script SQL Generado */}
+      {modalSqlAbierto && sqlGenerado && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+          <div className="bg-white border-4 border-black w-full max-w-4xl max-h-[85vh] flex flex-col shadow-[12px_12px_0px_rgba(0,0,0,1)]">
+            <div className="p-4 border-b-2 border-black bg-purple-600 text-white flex justify-between items-center">
+              <h3 className="font-black uppercase tracking-wider text-white flex items-center gap-2 text-sm sm:text-base">
+                <FileCode size={20} /> Script SQL listo para Supabase SQL Editor
+              </h3>
+              <button 
+                onClick={() => setModalSqlAbierto(false)}
+                className="bg-black text-white p-1 hover:bg-red-600 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-3 bg-purple-100 border-b-2 border-black font-mono text-xs text-purple-950 font-bold">
+              👉 Instrucciones: Copia este script, abre tu proyecto en <a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer" className="underline font-black">Supabase Dashboard</a> &gt; <strong>SQL Editor</strong> &gt; <strong>New Query</strong>, pega el contenido y presiona <strong>RUN</strong>.
+            </div>
+
+            <div className="p-4 flex-1 overflow-y-auto bg-gray-950 select-all">
+              <pre className="font-mono text-xs text-purple-300 whitespace-pre-wrap break-all leading-relaxed">
+                {sqlGenerado}
+              </pre>
+            </div>
+
+            <div className="p-4 border-t-2 border-black bg-gray-100 flex flex-wrap gap-3 justify-between items-center">
+              <p className="text-xs font-mono text-gray-700 uppercase font-bold">
+                Script generado automáticamente
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={copiarSqlAlPortapapeles}
+                  className="bg-purple-600 text-white border-2 border-black px-6 py-3 font-bold uppercase text-xs hover:bg-black transition-all flex items-center gap-2 shadow-[2px_2px_0px_rgba(0,0,0,1)]"
+                >
+                  {sqlCopiado ? <Check size={18} /> : <Copy size={18} />}
+                  {sqlCopiado ? "¡Script SQL Copiado!" : "Copiar Script SQL"}
                 </button>
               </div>
             </div>
