@@ -12,6 +12,7 @@ import toast from 'react-hot-toast';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { exportarProductosJSON, descargarJSON } from '../lib/exportProductos';
+import { getVPSProductos, saveVPSProducto, deleteVPSProducto } from '../lib/vpsService';
 
 export default function Inventario() {
   const { role } = useAuth();
@@ -121,39 +122,52 @@ export default function Inventario() {
   };
 
   useEffect(() => {
-    // Escuchar productos sin limite para ver todo el inventario
-    const q = query(collection(db, 'productos'));
-    let unsubProd: () => void;
+    // 1. Cargar inmediatamente desde la VPS (todos los 710 productos)
+    getVPSProductos().then(vpsProds => {
+      if (vpsProds && Array.isArray(vpsProds) && vpsProds.length > 0) {
+        setProductos(vpsProds);
+        try {
+          localStorage.setItem('bibi_store_cached_productos', JSON.stringify(vpsProds));
+        } catch {}
+      }
+    }).catch(e => console.warn("VPS prods load error:", e));
+
+    // 2. Escuchar productos en Firestore si está disponible
+    let unsubProd = () => {};
     let unsubCost: (() => void) | undefined;
-    
-    unsubProd = onSnapshot(q, (snap) => {
-      const prodData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
-      
-      // Mostrar productos inmediatamente
-      setProductos(prodData);
-      try {
-        localStorage.setItem('bibi_store_cached_productos', JSON.stringify(prodData));
-      } catch (e) {
-        console.warn("No se pudo respaldar en localStorage:", e);
-      }
-      
-      if (isAdmin) {
-        if (unsubCost) unsubCost();
-        unsubCost = onSnapshot(collection(db, 'costos_productos'), (snapCost) => {
-          const costData: Record<string, number> = {};
-          snapCost.forEach(d => { costData[d.id] = d.data().costo_usd; });
-          
-          setProductos(prev => prev.map(p => ({ ...p, costo_usd: costData[p.id] ?? (p.costo_usd || 0) })));
-        }, (errCost) => {
-          console.warn("No se pudieron cargar costos de productos:", errCost);
-        });
-      }
-    }, (err) => {
-      console.error("Error cargando productos en Inventario:", err);
-      if (err.message?.includes("Quota limit") || (err as any).code === "resource-exhausted") {
-        toast.error("Límite de lecturas de Firebase alcanzado. Mostrando inventario local.", { id: 'quota-err-inv' });
-      }
-    });
+    try {
+      const q = query(collection(db, 'productos'));
+      unsubProd = onSnapshot(q, (snap) => {
+        if (!snap.empty) {
+          const prodData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
+          setProductos(prev => {
+            const map = new Map<string, any>();
+            prev.forEach(p => map.set(p.id, p));
+            prodData.forEach(p => map.set(p.id, { ...map.get(p.id), ...p }));
+            const merged = Array.from(map.values());
+            try {
+              localStorage.setItem('bibi_store_cached_productos', JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        }
+        
+        if (isAdmin) {
+          if (unsubCost) unsubCost();
+          unsubCost = onSnapshot(collection(db, 'costos_productos'), (snapCost) => {
+            const costData: Record<string, number> = {};
+            snapCost.forEach(d => { costData[d.id] = d.data().costo_usd; });
+            setProductos(prev => prev.map(p => ({ ...p, costo_usd: costData[p.id] ?? (p.costo_usd || 0) })));
+          }, (errCost) => {
+            console.warn("No se pudieron cargar costos de productos:", errCost);
+          });
+        }
+      }, (err) => {
+        console.warn("Firestore productos aviso (usando base de datos local VPS):", err.message);
+      });
+    } catch (err) {
+      console.warn("Error iniciando listener Firestore:", err);
+    }
 
     return () => {
       unsubProd();
@@ -207,52 +221,66 @@ export default function Inventario() {
     setGuardando(true);
     
     try {
-      // finalImagenUrl already holds the base64 compressed data URL from handlePhotoUpload
-      // because we called canvas.toDataURL()
-      const payloadObj = {
+      const targetId = editandoId || `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const prodCompleto: Producto & { costo_usd?: number } = {
+        id: targetId,
         nombre: nombre.trim(),
         precio_usd: Number(precio) || 0,
+        costo_usd: Number(costo) || 0,
         stock: Number(stock) || 0,
         unidad_medida: unidadMedida,
         categoria: categoria || 'Sin Categoría',
         codigo_barras: (codigo || "N/A").trim(),
         imagen_url: imagenUrl || ""
       };
-      
-      const batch = writeBatch(db);
 
-      if (editandoId) {
-        const prodRef = doc(db, 'productos', editandoId);
-        batch.update(prodRef, payloadObj);
-        
-        if (isAdmin || role === 'cajero') {
-          const costoRef = doc(db, 'costos_productos', editandoId);
-          // Only admins can see cost, but to play safe with permissions we let the backend handle it
-          // Wait, the rules say only admin can update cost.
-          if (isAdmin) {
-             batch.set(costoRef, { costo_usd: Number(costo) || 0 }, { merge: true });
-          }
+      // 1. Guardar en el motor backend de la VPS
+      await saveVPSProducto(prodCompleto);
+
+      // 2. Actualizar estado local y cache inmediatamente
+      setProductos(prev => {
+        const idx = prev.findIndex(p => p.id === targetId);
+        let updated: any[];
+        if (idx >= 0) {
+          updated = [...prev];
+          updated[idx] = { ...updated[idx], ...prodCompleto };
+        } else {
+          updated = [prodCompleto, ...prev];
         }
-      } else {
-        const newProdRef = doc(collection(db, 'productos'));
-        batch.set(newProdRef, payloadObj);
-        
-        const newCostoRef = doc(db, 'costos_productos', newProdRef.id);
-        batch.set(newCostoRef, { costo_usd: Number(costo) || 0 });
+        try {
+          localStorage.setItem('bibi_store_cached_productos', JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+
+      // 3. Sincronizar en segundo plano con Firestore (si está accesible)
+      try {
+        const batch = writeBatch(db);
+        const prodRef = doc(db, 'productos', targetId);
+        batch.set(prodRef, {
+          nombre: prodCompleto.nombre,
+          precio_usd: prodCompleto.precio_usd,
+          stock: prodCompleto.stock,
+          unidad_medida: prodCompleto.unidad_medida,
+          categoria: prodCompleto.categoria,
+          codigo_barras: prodCompleto.codigo_barras,
+          imagen_url: prodCompleto.imagen_url
+        }, { merge: true });
+
+        if (isAdmin) {
+          const costoRef = doc(db, 'costos_productos', targetId);
+          batch.set(costoRef, { costo_usd: prodCompleto.costo_usd }, { merge: true });
+        }
+        await batch.commit();
+      } catch (errSync) {
+        console.warn("Sincronización en segundo plano con Firestore omitida:", errSync);
       }
       
-      await batch.commit();
-      
-      toast.success("Producto guardado correctamente", { id: loadingToast, duration: 2000 });
+      toast.success(editandoId ? "Producto actualizado correctamente" : "Producto añadido con éxito", { id: loadingToast, duration: 2500 });
       setModalAbierto(false);
     } catch (err) {
       console.error("Error detallado al guardar:", err);
-      if (err instanceof Error && err.message.includes("offline")) {
-        toast.success("Guardado local (se sincronizará al conectar)", { id: loadingToast, duration: 4000 });
-        setModalAbierto(false);
-      } else {
-        toast.error("Error de permisos o conexión.", { id: loadingToast, duration: 5000 });
-      }
+      toast.error("Error al guardar producto en el servidor.", { id: loadingToast, duration: 4000 });
     } finally {
       setGuardando(false);
     }
@@ -261,21 +289,39 @@ export default function Inventario() {
   const eliminarProducto = async (id: string) => {
     if(!confirm("¿Seguro que desea eliminar este producto?")) return;
     try {
-      if (isAdmin) {
-        await deleteDoc(doc(db, 'costos_productos', id));
-      }
-      await deleteDoc(doc(db, 'productos', id));
-      toast.success("Producto eliminado");
+      // 1. Eliminar en VPS
+      await deleteVPSProducto(id);
+
+      // 2. Eliminar del estado local
+      setProductos(prev => {
+        const filtered = prev.filter(p => p.id !== id);
+        try {
+          localStorage.setItem('bibi_store_cached_productos', JSON.stringify(filtered));
+        } catch {}
+        return filtered;
+      });
+
+      // 3. Eliminar de Firestore en segundo plano
+      try {
+        if (isAdmin) {
+          await deleteDoc(doc(db, 'costos_productos', id));
+        }
+        await deleteDoc(doc(db, 'productos', id));
+      } catch {}
+
+      toast.success("Producto eliminado del inventario");
     } catch (err) {
-      toast.error("Error al eliminar");
+      toast.error("Error al eliminar producto");
     }
   };
 
   const descargarCatalogo = async () => {
     const loadingToast = toast.loading("Generando catálogo...");
     try {
-      const snap = await getDocs(query(collection(db, 'productos')));
-      const allProductos = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
+      let allProductos = productos;
+      if (!allProductos || allProductos.length === 0) {
+        allProductos = await getVPSProductos();
+      }
 
       const doc = new jsPDF();
       doc.setFont("helvetica", "bold");

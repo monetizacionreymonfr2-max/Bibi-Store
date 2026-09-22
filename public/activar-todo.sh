@@ -288,9 +288,9 @@ server {
 }
 EOF
 
-ln -sf /etc/nginx/sites-available/bibi-store /etc/nginx/sites-enabled/default || true
-nginx -t
-systemctl restart nginx
+rm -f /etc/nginx/sites-enabled/*
+ln -sf /etc/nginx/sites-available/bibi-store /etc/nginx/sites-enabled/bibi-store
+nginx -t && systemctl restart nginx
 
 # Permisos
 chown -R www-data:www-data /var/www/bibi-store/dist

@@ -10,6 +10,7 @@ import { format } from 'date-fns';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import toast from 'react-hot-toast';
+import { getVPSVentas, getVPSProductos } from '../lib/vpsService';
 
 export default function Estadisticas() {
   const { role } = useAuth();
@@ -23,19 +24,43 @@ export default function Estadisticas() {
   useEffect(() => {
     if (!isAdmin) return;
 
-    const q = query(collection(db, 'ventas'), orderBy('fecha', 'desc'));
-    const unsubVentas = onSnapshot(q, (snap) => {
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Venta));
-      setVentas(data);
-    });
+    // 1. Cargar ventas y costos desde VPS
+    getVPSVentas().then(vpsVentas => {
+      if (vpsVentas && Array.isArray(vpsVentas) && vpsVentas.length > 0) {
+        setVentas(vpsVentas.sort((a,b) => b.fecha - a.fecha));
+      }
+    }).catch(e => console.warn("VPS ventas load:", e));
 
-    const unsubCostos = onSnapshot(collection(db, 'costos_productos'), (snap) => {
-      const costs: Record<string, number> = {};
-      snap.docs.forEach(d => {
-        costs[d.id] = d.data().costo_usd;
-      });
-      setCostos(costs);
-    });
+    getVPSProductos().then(vpsProds => {
+      if (vpsProds && Array.isArray(vpsProds) && vpsProds.length > 0) {
+        const costs: Record<string, number> = {};
+        vpsProds.forEach(p => {
+          if (p.costo_usd) costs[p.id] = p.costo_usd;
+        });
+        setCostos(prev => ({ ...costs, ...prev }));
+      }
+    }).catch(e => console.warn("VPS prods for costs:", e));
+
+    // 2. Escuchar Firestore si está disponible
+    let unsubVentas = () => {};
+    let unsubCostos = () => {};
+    try {
+      const q = query(collection(db, 'ventas'), orderBy('fecha', 'desc'));
+      unsubVentas = onSnapshot(q, (snap) => {
+        if (!snap.empty) {
+          const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Venta));
+          setVentas(data);
+        }
+      }, (err) => console.warn("Firestore ventas notice:", err.message));
+
+      unsubCostos = onSnapshot(collection(db, 'costos_productos'), (snap) => {
+        const costs: Record<string, number> = {};
+        snap.docs.forEach(d => {
+          costs[d.id] = d.data().costo_usd;
+        });
+        setCostos(prev => ({ ...prev, ...costs }));
+      }, (err) => console.warn("Firestore costos notice:", err.message));
+    } catch {}
 
     return () => {
       unsubVentas();
@@ -85,7 +110,10 @@ export default function Estadisticas() {
   const eliminarVenta = async (id: string) => {
     if (!confirm("¿Seguro que quieres eliminar esta venta? Esta acción no se puede deshacer y afectará los reportes.")) return;
     try {
-      await deleteDoc(doc(db, 'ventas', id));
+      setVentas(prev => prev.filter(v => v.id !== id));
+      try {
+        await deleteDoc(doc(db, 'ventas', id));
+      } catch {}
       toast.success("Venta eliminada");
     } catch (err) {
       console.error(err);

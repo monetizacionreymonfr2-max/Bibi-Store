@@ -10,7 +10,7 @@ import { handleAutomatedMigration, handleDirectJSONImportToSupabase, generateSQL
 import { checkVPSOnline, migrarTodoAVPS, VPSStatus } from '../lib/vpsService';
 
 export default function Ajustes() {
-  const { tasaDolar } = useConfig();
+  const { tasaDolar, actualizarTasa } = useConfig();
   const { role } = useAuth();
   const [nuevaTasa, setNuevaTasa] = useState('');
   const [guardando, setGuardando] = useState(false);
@@ -105,23 +105,18 @@ export default function Ajustes() {
   const guardarAjustes = async (e: React.FormEvent) => {
     e.preventDefault();
     setGuardando(true);
-    const loadingToast = toast.loading("Actualizando ajustes...");
+    const loadingToast = toast.loading("Actualizando tasa oficial...");
     try {
-      const ref = doc(db, 'configuracion', 'general');
-      const docSnap = await getDoc(ref);
-      const data = { 
-        tasa_dolar: Number(nuevaTasa)
-      };
-
-      if (docSnap.exists()) {
-        await updateDoc(ref, data);
-      } else {
-        await setDoc(ref, data);
+      const val = Number(nuevaTasa);
+      if (!val || val <= 0) {
+        toast.error("Por favor ingresa una tasa válida mayor a 0", { id: loadingToast });
+        return;
       }
-      toast.success("Ajustes actualizados", { id: loadingToast });
+      await actualizarTasa(val);
+      toast.success(`🎉 Tasa oficial actualizada a Bs. ${val}`, { id: loadingToast });
     } catch (err) {
       console.error(err);
-      toast.error("Error al actualizar ajustes", { id: loadingToast });
+      toast.error("Error al actualizar la tasa", { id: loadingToast });
     } finally {
       setGuardando(false);
     }

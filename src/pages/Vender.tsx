@@ -8,6 +8,7 @@ import { Producto, VentaItem, CATEGORIAS_PRODUCTO } from '../types';
 import { Search, Trash2, Scan, X, ShoppingCart } from 'lucide-react';
 import Scanner from '../components/Scanner';
 import toast from 'react-hot-toast';
+import { saveVPSVenta } from '../lib/vpsService';
 
 export default function Vender() {
   const { tasaDolar } = useConfig();
@@ -136,14 +137,11 @@ export default function Vender() {
     setProcesando(true);
     const loadingToast = toast.loading("Procesando venta...");
     try {
-      const batch = writeBatch(db);
-      
-      const repVenta = doc(collection(db, 'ventas'));
-      batch.set(repVenta, {
+      const ventaData = {
         total_usd: totalUSD,
         total_ved: totalVED,
         fecha: Date.now(),
-        vendedor_id: user!.uid,
+        vendedor_id: user?.uid || 'cajero',
         items: carrito.map(i => ({
           productoId: i.productoId,
           nombre: i.nombre,
@@ -151,46 +149,43 @@ export default function Vender() {
           precio_unitario_usd: i.precio_unitario_usd,
           categoria: i.categoria || 'Sin Categoría'
         }))
+      };
+
+      // 1. Guardar en VPS (el backend de la VPS descuenta el stock en disco atómicamente)
+      await saveVPSVenta(ventaData);
+
+      // 2. Descontar stock localmente en memoria
+      setProductos(prev => {
+        const copy = [...prev];
+        carrito.forEach(item => {
+          const p = copy.find(x => x.id === item.productoId);
+          if (p) p.stock = Math.max(0, p.stock - item.cantidad);
+        });
+        try {
+          localStorage.setItem('bibi_store_cached_productos', JSON.stringify(copy));
+        } catch {}
+        return copy;
       });
 
-      // Update Stock Atómicamente en el servidor
-      for (const item of carrito) {
-        const pref = doc(db, 'productos', item.productoId);
-        batch.update(pref, { stock: increment(-item.cantidad) });
+      // 3. Sincronizar con Firestore en segundo plano (si está accesible)
+      try {
+        const batch = writeBatch(db);
+        const repVenta = doc(collection(db, 'ventas'));
+        batch.set(repVenta, ventaData);
+        for (const item of carrito) {
+          const pref = doc(db, 'productos', item.productoId);
+          batch.update(pref, { stock: increment(-item.cantidad) });
+        }
+        await batch.commit();
+      } catch (errSync) {
+        console.warn("Firestore sync omitido (venta procesada y guardada en VPS):", errSync);
       }
-
-      await batch.commit();
-
-      // Guardar también en VPS local autónomo si está activo
-      fetch('/api/vps/ventas', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          total_usd: totalUSD,
-          total_ved: totalVED,
-          fecha: Date.now(),
-          vendedor_id: user?.uid || 'admin',
-          items: carrito.map(i => ({
-            productoId: i.productoId,
-            nombre: i.nombre,
-            cantidad: i.cantidad,
-            precio_unitario_usd: i.precio_unitario_usd,
-            categoria: i.categoria || 'Sin Categoría'
-          }))
-        })
-      }).catch(() => {});
 
       setCarrito([]);
-      toast.success("Venta registrada con éxito", { id: loadingToast });
+      toast.success("🎉 Venta registrada con éxito", { id: loadingToast });
     } catch (err) {
-      console.error(err);
-      const errorMsg = err instanceof Error ? err.message : "Error desconocido";
-      if (errorMsg.includes("offline") || !navigator.onLine) {
-        setCarrito([]);
-        toast.success("Venta guardada (Local)", { id: loadingToast });
-      } else {
-        toast.error("Error al vender: " + errorMsg, { id: loadingToast });
-      }
+      console.error("Error al vender:", err);
+      toast.error("Error al procesar la venta en el servidor", { id: loadingToast });
     } finally {
       setProcesando(false);
     }

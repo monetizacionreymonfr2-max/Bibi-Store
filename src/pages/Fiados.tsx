@@ -8,6 +8,7 @@ import { Plus, Check, Search, X, Users, CreditCard, History, ChevronDown, Chevro
 import { useConfig } from '../contexts/ConfigContext';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
+import { getVPSFiados, saveVPSFiado } from '../lib/vpsService';
 
 export default function Fiados() {
   const { role } = useAuth();
@@ -30,10 +31,25 @@ export default function Fiados() {
   const [montoAbono, setMontoAbono] = useState('');
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'fiados'), (snap) => {
-      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Fiado));
-      setFiados(data.sort((a,b) => b.fecha - a.fecha)); // sort desc
-    });
+    // 1. Cargar desde la VPS
+    getVPSFiados().then(vpsFiados => {
+      if (vpsFiados && Array.isArray(vpsFiados) && vpsFiados.length > 0) {
+        setFiados(vpsFiados.sort((a,b) => b.fecha - a.fecha));
+      }
+    }).catch(e => console.warn("VPS fiados load:", e));
+
+    // 2. Escuchar Firestore si está disponible
+    let unsub = () => {};
+    try {
+      unsub = onSnapshot(collection(db, 'fiados'), (snap) => {
+        if (!snap.empty) {
+          const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Fiado));
+          setFiados(data.sort((a,b) => b.fecha - a.fecha));
+        }
+      }, (err) => {
+        console.warn("Firestore fiados aviso:", err.message);
+      });
+    } catch {}
     return () => unsub();
   }, []);
 
@@ -55,21 +71,50 @@ export default function Fiados() {
     try {
       const existing = fiados.find(f => f.cliente.toLowerCase() === cliente.trim().toLowerCase() && f.estado === 'pendiente');
       
-      if (existing) {
-        // Sumar a la deuda existente
-        await updateDoc(doc(db, 'fiados', existing.id), {
-          monto_usd: existing.monto_usd + Number(montoUSD),
-          descripcion: existing.descripcion ? `${existing.descripcion}, ${descripcion}` : descripcion,
-          fecha: Date.now()
-        });
-      } else {
-        await addDoc(collection(db, 'fiados'), {
-          cliente: cliente.trim().toUpperCase(),
-          monto_usd: Number(montoUSD),
-          descripcion: descripcion,
-          fecha: Date.now(),
-          estado: 'pendiente'
-        });
+      const nuevoMonto = existing ? existing.monto_usd + Number(montoUSD) : Number(montoUSD);
+      const nuevaDesc = existing 
+        ? (existing.descripcion ? `${existing.descripcion}, ${descripcion}` : descripcion)
+        : descripcion;
+      const targetId = existing ? existing.id : `fiado_${Date.now()}`;
+
+      const fiadoObj: Fiado = {
+        id: targetId,
+        cliente: cliente.trim().toUpperCase(),
+        monto_usd: nuevoMonto,
+        descripcion: nuevaDesc,
+        fecha: Date.now(),
+        estado: 'pendiente',
+        historial_abonos: existing?.historial_abonos || []
+      };
+
+      // 1. Guardar en VPS
+      await saveVPSFiado(fiadoObj);
+
+      // 2. Actualizar estado local
+      setFiados(prev => {
+        const filtered = prev.filter(f => f.id !== targetId);
+        return [fiadoObj, ...filtered].sort((a,b) => b.fecha - a.fecha);
+      });
+
+      // 3. Sincronizar con Firestore en segundo plano
+      try {
+        if (existing) {
+          await updateDoc(doc(db, 'fiados', existing.id), {
+            monto_usd: nuevoMonto,
+            descripcion: nuevaDesc,
+            fecha: Date.now()
+          });
+        } else {
+          await addDoc(collection(db, 'fiados'), {
+            cliente: cliente.trim().toUpperCase(),
+            monto_usd: Number(montoUSD),
+            descripcion: descripcion,
+            fecha: Date.now(),
+            estado: 'pendiente'
+          });
+        }
+      } catch (errSync) {
+        console.warn("Firestore sync fiado omitido:", errSync);
       }
       
       setModalAbierto(false);
@@ -94,14 +139,33 @@ export default function Fiados() {
     const loadingToast = toast.loading("Procesando abono...");
     try {
       const nuevoMonto = modalAbono.deuda - monto;
-      await updateDoc(doc(db, 'fiados', modalAbono.fiadoId), {
-        monto_usd: nuevoMonto,
-        estado: nuevoMonto <= 0 ? 'pagado' : 'pendiente',
-        historial_abonos: arrayUnion({
-          monto_usd: monto,
-          fecha: Date.now()
-        })
-      });
+      const abonoItem = {
+        monto_usd: monto,
+        fecha: Date.now()
+      };
+
+      // 1. Actualizar estado y VPS
+      const current = fiados.find(f => f.id === modalAbono.fiadoId);
+      if (current) {
+        const updated: Fiado = {
+          ...current,
+          monto_usd: nuevoMonto,
+          estado: nuevoMonto <= 0 ? 'pagado' : 'pendiente',
+          historial_abonos: [...(current.historial_abonos || []), abonoItem]
+        };
+        await saveVPSFiado(updated);
+        setFiados(prev => prev.map(f => f.id === updated.id ? updated : f));
+      }
+
+      // 2. Sincronizar Firestore en segundo plano
+      try {
+        await updateDoc(doc(db, 'fiados', modalAbono.fiadoId), {
+          monto_usd: nuevoMonto,
+          estado: nuevoMonto <= 0 ? 'pagado' : 'pendiente',
+          historial_abonos: arrayUnion(abonoItem)
+        });
+      } catch {}
+
       setModalAbono({ abierto: false, fiadoId: '', cliente: '', deuda: 0 });
       setMontoAbono('');
       toast.success("Abono procesado con éxito", { id: loadingToast });
@@ -114,14 +178,30 @@ export default function Fiados() {
     if(!confirm("¿Confirmar pago total de esta deuda?")) return;
     const loadingToast = toast.loading("Actualizando...");
     try {
-      await updateDoc(doc(db, 'fiados', fiado.id), { 
-        estado: 'pagado', 
+      const abonoItem = {
+        monto_usd: fiado.monto_usd,
+        fecha: Date.now()
+      };
+      const updated: Fiado = {
+        ...fiado,
+        estado: 'pagado',
         monto_usd: 0,
-        historial_abonos: arrayUnion({
-          monto_usd: fiado.monto_usd, // Liquidamos lo que falta
-          fecha: Date.now()
-        })
-      });
+        historial_abonos: [...(fiado.historial_abonos || []), abonoItem]
+      };
+
+      // 1. Guardar en VPS y estado local
+      await saveVPSFiado(updated);
+      setFiados(prev => prev.map(f => f.id === updated.id ? updated : f));
+
+      // 2. Sincronizar Firestore
+      try {
+        await updateDoc(doc(db, 'fiados', fiado.id), { 
+          estado: 'pagado', 
+          monto_usd: 0,
+          historial_abonos: arrayUnion(abonoItem)
+        });
+      } catch {}
+
       toast.success("Deuda saldada", { id: loadingToast });
     } catch (err) {
       console.error(err);
