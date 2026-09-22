@@ -37,7 +37,20 @@ export default function Vender() {
   const [isEditingWeight, setIsEditingWeight] = useState(false);
 
   useEffect(() => {
-    // Escuchar todos los productos para la venta
+    // 1. Intentar cargar desde el backend autónomo de la VPS
+    fetch('/api/vps/productos')
+      .then(r => r.ok ? r.json() : null)
+      .then(vpsProds => {
+        if (vpsProds && Array.isArray(vpsProds) && vpsProds.length > 0) {
+          setProductos(vpsProds);
+          try {
+            localStorage.setItem('bibi_store_cached_productos', JSON.stringify(vpsProds));
+          } catch {}
+        }
+      })
+      .catch(() => {});
+
+    // 2. Escuchar todos los productos para la venta en Firestore
     const q = query(collection(db, 'productos'));
     const unsub = onSnapshot(q, (snap) => {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
@@ -147,6 +160,26 @@ export default function Vender() {
       }
 
       await batch.commit();
+
+      // Guardar también en VPS local autónomo si está activo
+      fetch('/api/vps/ventas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          total_usd: totalUSD,
+          total_ved: totalVED,
+          fecha: Date.now(),
+          vendedor_id: user?.uid || 'admin',
+          items: carrito.map(i => ({
+            productoId: i.productoId,
+            nombre: i.nombre,
+            cantidad: i.cantidad,
+            precio_unitario_usd: i.precio_unitario_usd,
+            categoria: i.categoria || 'Sin Categoría'
+          }))
+        })
+      }).catch(() => {});
+
       setCarrito([]);
       toast.success("Venta registrada con éxito", { id: loadingToast });
     } catch (err) {

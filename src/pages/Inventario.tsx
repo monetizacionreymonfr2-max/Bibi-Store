@@ -404,25 +404,25 @@ export default function Inventario() {
         <div className="flex items-center gap-2 w-full md:w-auto">
           <button 
             onClick={async () => {
-              const loadingToast = toast.loading("Exportando productos para Supabase...");
+              const loadingToast = toast.loading("Exportando catálogo completo con fotos y costos...");
               try {
-                const data = await exportarProductosJSON();
-                descargarJSON(data, 'productos.json');
+                const data = await exportarProductosJSON(productos);
+                descargarJSON(data, 'bibi_store_productos_completos.json');
                 console.log("EXPORTED PRODUCTOS JSON:", data);
-                toast.success(`Exportados ${data.length} productos a productos.json`, { id: loadingToast });
+                toast.success(`¡Descargados ${data.length} productos con fotos y costos!`, { id: loadingToast, duration: 5000 });
               } catch (err) {
                 console.error(err);
                 toast.error("Error al exportar productos", { id: loadingToast });
               }
             }}
-            className="bg-emerald-600 text-white border-2 border-black px-3 py-2 font-bold uppercase tracking-wider text-xs hover:bg-black hover:text-white transition-all flex items-center gap-2 whitespace-nowrap"
-            title="Exportar productos.json para Supabase"
+            className="bg-emerald-600 text-white border-2 border-black px-3 py-2 font-bold uppercase tracking-wider text-xs hover:bg-black hover:text-white transition-all flex items-center gap-2 whitespace-nowrap shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+            title="Descargar copia completa (710 productos con fotos y costos)"
           >
-            <FileCode size={16} /> <span className="hidden sm:inline">JSON Supabase</span>
+            <FileCode size={16} /> <span className="hidden sm:inline">Descargar Copia Completa</span>
           </button>
           <button 
             onClick={descargarCatalogo}
-            className="bg-black text-white border-2 border-black px-3 py-2 font-bold uppercase tracking-wider text-xs hover:bg-yellow-400 hover:text-black transition-all flex items-center gap-2 whitespace-nowrap"
+            className="bg-black text-white border-2 border-black px-3 py-2 font-bold uppercase tracking-wider text-xs hover:bg-yellow-400 hover:text-black transition-all flex items-center gap-2 whitespace-nowrap shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
             title="Descargar Catálogo PDF"
           >
             <FileDown size={16} /> <span className="hidden sm:inline">PDF</span>

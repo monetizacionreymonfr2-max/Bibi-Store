@@ -98,12 +98,55 @@ server {
         add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
     }
 
+    client_max_body_size 100M;
+
+    # Proxy hacia el Backend Autónomo de la VPS
+    location /api/ {
+        proxy_pass http://127.0.0.1:5000/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 300s;
+    }
+
     # Soporte SPA: Redirigir cualquier ruta a index.html para React Router
     location / {
         try_files $uri $uri/ /index.html;
     }
 }
 EOF
+
+# Configurar Backend Autónomo Node.js
+mkdir -p /var/www/bibi-store/data
+mkdir -p /var/www/bibi-store/server
+if [ -f /var/www/bibi-store/source/server/vps_server.cjs ]; then
+  cp /var/www/bibi-store/source/server/vps_server.cjs /var/www/bibi-store/server/vps_server.cjs
+fi
+
+cat << 'EOF' > /etc/systemd/system/bibi-backend.service
+[Unit]
+Description=Bibi Store VPS Backend Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/www/bibi-store
+ExecStart=/usr/bin/node /var/www/bibi-store/server/vps_server.cjs
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=5000
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now bibi-backend || true
+systemctl restart bibi-backend || true
 
 # Habilitar sitio
 rm -f /etc/nginx/sites-enabled/default

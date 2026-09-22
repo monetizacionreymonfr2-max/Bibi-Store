@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { exportarProductosJSON, descargarJSON, ProductoExportJSON } from '../lib/exportProductos';
 import { handleAutomatedMigration, handleDirectJSONImportToSupabase, generateSQLFromJSON, MigrationProgress } from '../lib/supabaseMigration';
+import { checkVPSOnline, migrarTodoAVPS, VPSStatus } from '../lib/vpsService';
 
 export default function Ajustes() {
   const { tasaDolar } = useConfig();
@@ -18,6 +19,11 @@ export default function Ajustes() {
   const [exportData, setExportData] = useState<ProductoExportJSON[] | null>(null);
   const [modalExportAbierto, setModalExportAbierto] = useState(false);
   const [copiado, setCopiado] = useState(false);
+
+  // Estados para VPS Autónomo
+  const [vpsStatus, setVpsStatus] = useState<VPSStatus>({ online: false });
+  const [migrandoVPS, setMigrandoVPS] = useState(false);
+  const [copiadoComandoActivarBackend, setCopiadoComandoActivarBackend] = useState(false);
 
   // Estados para Migración Automática y JSON Supabase
   const [supabaseUrl, setSupabaseUrl] = useState(() => 
@@ -49,6 +55,53 @@ export default function Ajustes() {
     }
   }, [tasaDolar]);
 
+  useEffect(() => {
+    checkVPSOnline().then(setVpsStatus);
+    const interval = setInterval(() => {
+      checkVPSOnline().then(setVpsStatus);
+    }, 6000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleMigrarAVPS = async () => {
+    setMigrandoVPS(true);
+    const loadingToast = toast.loading("Preparando 710 productos y enviando a la VPS...");
+    try {
+      let prods: any[] = [];
+      const cached = localStorage.getItem('bibi_store_cached_productos');
+      if (cached) {
+        try { prods = JSON.parse(cached); } catch {}
+      }
+
+      if (prods.length === 0) {
+        prods = await exportarProductosJSON();
+      }
+
+      if (prods.length === 0) {
+        throw new Error("No hay productos cargados en memoria. Abre la pantalla de Inventario primero.");
+      }
+
+      const res = await migrarTodoAVPS({
+        productos: prods,
+        config: { tasa_dolar: Number(nuevaTasa) || tasaDolar || 50 }
+      });
+
+      toast.success(`🎉 ¡Migración Perfecta! ${res.totalProductos} productos guardados en el disco de tu VPS.`, {
+        id: loadingToast,
+        duration: 8000
+      });
+      checkVPSOnline().then(setVpsStatus);
+    } catch (err: any) {
+      console.error("Error migrando a VPS:", err);
+      toast.error(err.message || "Error al migrar a la VPS. Asegúrate de haber ejecutado el script en la consola.", {
+        id: loadingToast,
+        duration: 7000
+      });
+    } finally {
+      setMigrandoVPS(false);
+    }
+  };
+
   const guardarAjustes = async (e: React.FormEvent) => {
     e.preventDefault();
     setGuardando(true);
@@ -76,14 +129,19 @@ export default function Ajustes() {
 
   const handleExportarJSON = async () => {
     setExportando(true);
-    const loadingToast = toast.loading("Obteniendo productos y costos de Firestore...");
+    const loadingToast = toast.loading("Exportando catálogo completo con fotos y costos...");
     try {
-      const data = await exportarProductosJSON();
+      let cached: any[] | undefined;
+      try {
+        const s = localStorage.getItem('bibi_store_cached_productos');
+        if (s) cached = JSON.parse(s);
+      } catch {}
+      const data = await exportarProductosJSON(cached);
       setExportData(data);
-      descargarJSON(data, 'productos.json');
-      console.log("=== RESULTADO EXPORTACIÓN PRODUCTOS (SUPABASE) ===");
+      descargarJSON(data, 'bibi_store_productos_completos.json');
+      console.log("=== RESULTADO EXPORTACIÓN PRODUCTOS ===");
       console.log(JSON.stringify(data, null, 2));
-      toast.success(`Exportados ${data.length} productos a productos.json`, { id: loadingToast });
+      toast.success(`¡Exportados ${data.length} productos con fotos y costos!`, { id: loadingToast, duration: 5000 });
       setModalExportAbierto(true);
     } catch (err: any) {
       console.error("Error en handleExportarJSON:", err);
@@ -417,6 +475,87 @@ echo "========================================================="
                   className="px-2 py-1 border-2 border-black font-mono text-xs font-bold bg-white focus:outline-none w-36"
                   placeholder="64.227.15.171"
                 />
+              </div>
+            </div>
+
+            {/* PANEL DE MIGRACIÓN AUTÓNOMA 1-CLIC */}
+            <div className="bg-white border-4 border-black p-5 shadow-[4px_4px_0px_rgba(0,0,0,1)] space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b-2 border-black pb-3">
+                <div>
+                  <span className="text-xs font-black uppercase tracking-widest text-emerald-700 block">
+                    ★ MIGRACIÓN DEFINITIVA A LA VPS (SIN LÍMITES)
+                  </span>
+                  <h3 className="text-lg font-black uppercase tracking-tight text-black mt-0.5">
+                    Hacer Bibi Store 100% Independiente de Firebase
+                  </h3>
+                </div>
+                <div>
+                  {vpsStatus.online ? (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-800 border-2 border-emerald-600 font-mono text-xs font-black uppercase">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      Backend VPS Activo ({vpsStatus.totalProductos ?? 0} prods)
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 text-amber-800 border-2 border-amber-600 font-mono text-xs font-bold uppercase">
+                      <AlertCircle size={14} /> Backend VPS en Reposo
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <p className="text-xs font-mono text-gray-700 leading-relaxed">
+                Este botón transfiere todos tus <strong>710 productos</strong> (con fotos, precios de venta, costos en dólares, existencias y códigos de barra) directamente al disco duro de tu VPS. Bibi Store funcionará con su propio motor local a máxima velocidad y sin depender de cuotas de Firebase.
+              </p>
+
+              <div className="flex flex-col sm:flex-row gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={handleMigrarAVPS}
+                  disabled={migrandoVPS}
+                  className="flex-1 bg-emerald-600 hover:bg-black text-white font-black py-3.5 px-6 border-2 border-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 transition-all shadow-[3px_3px_0px_rgba(0,0,0,1)] disabled:opacity-50"
+                >
+                  {migrandoVPS ? (
+                    <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                  ) : (
+                    <UploadCloud size={18} />
+                  )}
+                  {migrandoVPS ? "Migrando 710 Productos..." : "🚀 Migrar los 710 Productos a la VPS (1-Clic)"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExportarJSON}
+                  disabled={exportando}
+                  className="bg-black hover:bg-yellow-400 hover:text-black text-white font-bold py-3.5 px-5 border-2 border-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 transition-all shadow-[3px_3px_0px_rgba(0,0,0,1)] disabled:opacity-50 whitespace-nowrap"
+                  title="Descargar copia de seguridad completa con fotos y costos"
+                >
+                  <Download size={18} />
+                  <span>💾 Descargar Copia Maestra (JSON)</span>
+                </button>
+              </div>
+
+              {/* Comando para activar el backend en la VPS */}
+              <div className="bg-gray-900 text-gray-100 p-3.5 font-mono text-xs border-2 border-black space-y-2 mt-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-emerald-400 font-bold flex items-center gap-1.5">
+                    <Terminal size={14} /> Comando para activar el Backend Autónomo en tu VPS:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => copiarTexto(
+                      "curl -fsSL https://ais-pre-gblqqchksfkcg6b6rsqrxx-48346512190.us-east1.run.app/activar-backend-vps.sh | bash",
+                      setCopiadoComandoActivarBackend,
+                      "¡Comando del backend copiado!"
+                    )}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors flex items-center gap-1"
+                  >
+                    {copiadoComandoActivarBackend ? <Check size={12} /> : <Copy size={12} />}
+                    {copiadoComandoActivarBackend ? "Copiado" : "Copiar"}
+                  </button>
+                </div>
+                <div className="text-yellow-300 break-all select-all font-bold">
+                  curl -fsSL https://ais-pre-gblqqchksfkcg6b6rsqrxx-48346512190.us-east1.run.app/activar-backend-vps.sh | bash
+                </div>
               </div>
             </div>
 

@@ -3,24 +3,35 @@ import { db } from './firebase';
 
 export interface ProductoExportJSON {
   id: string;
+  nombre: string;
   precio_usd: number;
   costo_usd: number;
+  stock: number;
+  unidad_medida: 'unid' | 'kg';
+  categoria?: string;
+  codigo_barras?: string;
   imagen_url: string;
 }
 
 /**
- * Obtiene todos los documentos de la colección 'productos' y 'costos_productos' de Firestore
- * y devuelve la estructura exacta solicitada para Supabase:
- * [
- *   {
- *     "id": "ID_DEL_PRODUCTO",
- *     "precio_usd": 2.50,
- *     "costo_usd": 1.20,
- *     "imagen_url": "URL_DE_LA_IMAGEN"
- *   }
- * ]
+ * Obtiene todos los productos con datos completos (nombre, precios, costos, stock, códigos e imágenes).
+ * Si se pasan productos en memoria/localStorage, los usa directamente para no consumir cuotas.
  */
-export async function exportarProductosJSON(): Promise<ProductoExportJSON[]> {
+export async function exportarProductosJSON(productosMemoria?: any[]): Promise<ProductoExportJSON[]> {
+  if (productosMemoria && productosMemoria.length > 0) {
+    return productosMemoria.map((p) => ({
+      id: String(p.id),
+      nombre: String(p.nombre || ''),
+      precio_usd: typeof p.precio_usd === 'number' ? p.precio_usd : (Number(p.precio_usd) || 0),
+      costo_usd: typeof p.costo_usd === 'number' ? p.costo_usd : (Number(p.costo_usd) || 0),
+      stock: typeof p.stock === 'number' ? p.stock : (Number(p.stock) || 0),
+      unidad_medida: p.unidad_medida === 'kg' ? 'kg' : 'unid',
+      categoria: p.categoria || 'Varios',
+      codigo_barras: p.codigo_barras || '',
+      imagen_url: String(p.imagen_url || p.imagen || '')
+    }));
+  }
+
   let prodSnap;
   try {
     prodSnap = await getDocs(collection(db, 'productos'));
@@ -57,8 +68,13 @@ export async function exportarProductosJSON(): Promise<ProductoExportJSON[]> {
 
     return {
       id: docSnap.id,
+      nombre: String(data.nombre || ''),
       precio_usd,
       costo_usd,
+      stock: typeof data.stock === 'number' ? data.stock : (Number(data.stock) || 0),
+      unidad_medida: data.unidad_medida === 'kg' ? 'kg' : 'unid',
+      categoria: data.categoria || 'Varios',
+      codigo_barras: data.codigo_barras || '',
       imagen_url
     };
   });
