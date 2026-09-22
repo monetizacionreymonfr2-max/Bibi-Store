@@ -1,14 +1,14 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot, doc, writeBatch, query, limit, where, getDocs, increment } from 'firebase/firestore';
 import { useConfig } from '../contexts/ConfigContext';
 import { useAuth } from '../contexts/AuthContext';
 import { formatUSD, formatBs, cn } from '../lib/utils';
 import { Producto, VentaItem, CATEGORIAS_PRODUCTO } from '../types';
-import { Search, Trash2, Scan, X, ShoppingCart } from 'lucide-react';
+import { Search, Trash2, Scan, X, ShoppingCart, UploadCloud, Database } from 'lucide-react';
 import Scanner from '../components/Scanner';
 import toast from 'react-hot-toast';
-import { saveVPSVenta } from '../lib/vpsService';
+import { saveVPSVenta, migrarTodoAVPS } from '../lib/vpsService';
 
 export default function Vender() {
   const { tasaDolar } = useConfig();
@@ -71,6 +71,46 @@ export default function Vender() {
     });
     return () => unsub();
   }, []);
+
+  const handleSubirCopiaJSON = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const toastId = toast.loading("Leyendo archivo JSON de copia de seguridad...");
+    try {
+      const text = await file.text();
+      let parsed = JSON.parse(text);
+      let prods: any[] = [];
+      if (Array.isArray(parsed)) {
+        prods = parsed;
+      } else if (parsed && Array.isArray(parsed.productos)) {
+        prods = parsed.productos;
+      } else {
+        throw new Error("El archivo no contiene un formato de lista de productos válido.");
+      }
+
+      if (prods.length === 0) {
+        throw new Error("El archivo JSON no contiene productos.");
+      }
+
+      // 1. Guardar en memoria local
+      setProductos(prods);
+      try {
+        localStorage.setItem('bibi_store_cached_productos', JSON.stringify(prods));
+      } catch {}
+
+      // 2. Enviar a la VPS
+      try {
+        await migrarTodoAVPS({ productos: prods });
+      } catch (e) {
+        console.warn("Aviso guardando en VPS:", e);
+      }
+
+      toast.success(`🎉 ¡Éxito! ${prods.length} productos cargados y listos para vender.`, { id: toastId, duration: 6000 });
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || "Error al procesar el archivo JSON", { id: toastId });
+    }
+  };
 
   const prodFiltrados = productos.filter(p => {
     const term = busqueda.toLowerCase();
@@ -321,11 +361,29 @@ export default function Vender() {
             );
           })}
 
-          {prodFiltrados.length === 0 && (
-            <div className="col-span-full py-12 text-center text-gray-400 font-bold tracking-widest uppercase">
-              No se encontraron productos.
+          {productos.length === 0 ? (
+            <div className="col-span-full py-10 px-4 text-center border-2 border-dashed border-black bg-yellow-50/50 m-2 flex flex-col items-center justify-center">
+              <Database size={40} className="text-black mb-2" />
+              <h3 className="font-black text-sm uppercase tracking-wider text-black">Catálogo sin productos en este dispositivo</h3>
+              <p className="text-xs text-gray-600 max-w-sm mt-1 mb-4 font-medium leading-relaxed">
+                El límite de lecturas de Firebase está activo. Carga tu copia de seguridad <b>bibi_store_productos_completos.json</b> para activar tus 710 productos de inmediato en tu VPS.
+              </p>
+              <label className="inline-flex items-center gap-2 bg-yellow-400 text-black border-2 border-black font-black uppercase text-xs px-5 py-3 cursor-pointer hover:bg-black hover:text-white transition-all shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5">
+                <UploadCloud size={18} />
+                <span>📂 Cargar Copia JSON de Productos</span>
+                <input 
+                  type="file" 
+                  accept=".json" 
+                  className="hidden" 
+                  onChange={handleSubirCopiaJSON}
+                />
+              </label>
             </div>
-          )}
+          ) : prodFiltrados.length === 0 ? (
+            <div className="col-span-full py-12 text-center text-gray-400 font-bold tracking-widest uppercase">
+              No se encontraron productos coincidentes con "{busqueda}".
+            </div>
+          ) : null}
         </div>
 
         {/* Mobile floating button to open cart */}

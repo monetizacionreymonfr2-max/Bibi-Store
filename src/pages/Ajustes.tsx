@@ -102,6 +102,43 @@ export default function Ajustes() {
     }
   };
 
+  const handleSubirCopiaJSON = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const toastId = toast.loading("Restaurando catálogo desde archivo JSON...");
+    try {
+      const text = await file.text();
+      let parsed = JSON.parse(text);
+      let prods: any[] = [];
+      if (Array.isArray(parsed)) {
+        prods = parsed;
+      } else if (parsed && Array.isArray(parsed.productos)) {
+        prods = parsed.productos;
+      } else {
+        throw new Error("El archivo no contiene una lista de productos válida.");
+      }
+
+      if (prods.length === 0) {
+        throw new Error("El archivo JSON no contiene productos.");
+      }
+
+      try {
+        localStorage.setItem('bibi_store_cached_productos', JSON.stringify(prods));
+      } catch {}
+
+      const res = await migrarTodoAVPS({
+        productos: prods,
+        config: { tasa_dolar: Number(nuevaTasa) || tasaDolar || 50 }
+      });
+
+      toast.success(`🎉 ¡Restauración completa! ${res.totalProductos || prods.length} productos guardados en tu VPS y en este navegador.`, { id: toastId, duration: 8000 });
+      checkVPSOnline().then(setVpsStatus);
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || "Error al procesar el archivo JSON", { id: toastId });
+    }
+  };
+
   const guardarAjustes = async (e: React.FormEvent) => {
     e.preventDefault();
     setGuardando(true);
@@ -514,7 +551,7 @@ echo "========================================================="
                   ) : (
                     <UploadCloud size={18} />
                   )}
-                  {migrandoVPS ? "Migrando 710 Productos..." : "🚀 Migrar los 710 Productos a la VPS (1-Clic)"}
+                  {migrandoVPS ? "Sincronizando con VPS..." : "🚀 Sincronizar Catálogo con la VPS"}
                 </button>
 
                 <button
@@ -529,18 +566,48 @@ echo "========================================================="
                 </button>
               </div>
 
-              {/* Comando para activar el backend en la VPS */}
+              {/* Opción Directa: Cargar archivo de respaldo JSON para independizar la VPS */}
+              <div className="bg-yellow-50 border-2 border-black p-4 space-y-3 mt-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Database size={18} className="text-black" />
+                    <h3 className="text-xs font-black uppercase tracking-widest text-black">
+                      Independizar VPS con archivo JSON de respaldo
+                    </h3>
+                  </div>
+                  <span className="text-[10px] font-mono bg-yellow-400 border border-black px-1.5 py-0.5 font-bold uppercase">
+                    100% Autónomo
+                  </span>
+                </div>
+                <p className="text-xs font-mono text-gray-700 leading-relaxed">
+                  ¿Tienes tu archivo <strong>bibi_store_productos_completos.json</strong>? Selecciónalo aquí abajo. El sistema cargará todos tus 710 productos con fotos, precios y costos directamente en el disco duro de tu VPS y en tu navegador, sin pasar por Firebase ni consumir lecturas.
+                </p>
+                <div>
+                  <label className="inline-flex items-center gap-2 bg-yellow-400 hover:bg-black hover:text-white text-black font-black py-3 px-5 border-2 border-black uppercase tracking-widest text-xs transition-all shadow-[3px_3px_0px_rgba(0,0,0,1)] cursor-pointer">
+                    <UploadCloud size={16} />
+                    <span>📂 Cargar bibi_store_productos_completos.json</span>
+                    <input 
+                      type="file" 
+                      accept=".json" 
+                      className="hidden" 
+                      onChange={handleSubirCopiaJSON}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Comando para activar el backend y actualizar en la VPS */}
               <div className="bg-gray-900 text-gray-100 p-3.5 font-mono text-xs border-2 border-black space-y-2 mt-2">
                 <div className="flex items-center justify-between">
                   <span className="text-emerald-400 font-bold flex items-center gap-1.5">
-                    <Terminal size={14} /> Comando para activar el Backend Autónomo en tu VPS:
+                    <Terminal size={14} /> Comando para actualizar y activar Backend Autónomo en tu VPS:
                   </span>
                   <button
                     type="button"
                     onClick={() => copiarTexto(
-                      "curl -fsSL https://ais-pre-gblqqchksfkcg6b6rsqrxx-48346512190.us-east1.run.app/activar-backend-vps.sh | bash",
+                      "curl -fsSL https://raw.githubusercontent.com/monetizacionreymonfr2-max/Bibi-Store/main/public/actualizar.sh | bash",
                       setCopiadoComandoActivarBackend,
-                      "¡Comando del backend copiado!"
+                      "¡Comando copiado!"
                     )}
                     className="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors flex items-center gap-1"
                   >
@@ -549,7 +616,7 @@ echo "========================================================="
                   </button>
                 </div>
                 <div className="text-yellow-300 break-all select-all font-bold">
-                  curl -fsSL https://ais-pre-gblqqchksfkcg6b6rsqrxx-48346512190.us-east1.run.app/activar-backend-vps.sh | bash
+                  curl -fsSL https://raw.githubusercontent.com/monetizacionreymonfr2-max/Bibi-Store/main/public/actualizar.sh | bash
                 </div>
               </div>
             </div>
@@ -616,7 +683,7 @@ echo "========================================================="
                 <div className="bg-gray-900 text-gray-100 p-3 font-mono text-[11px] border border-black space-y-2 overflow-x-auto">
                   <div className="text-emerald-400 font-bold"># Comando de 1 solo clic (pegar directamente en tu consola):</div>
                   <div className="text-yellow-300 break-all select-all font-bold">
-                    curl -fsSL https://ais-pre-gblqqchksfkcg6b6rsqrxx-48346512190.us-east1.run.app/instalar.sh | bash
+                    curl -fsSL https://raw.githubusercontent.com/monetizacionreymonfr2-max/Bibi-Store/main/public/actualizar.sh | bash
                   </div>
                 </div>
 
@@ -624,9 +691,9 @@ echo "========================================================="
                   <button
                     type="button"
                     onClick={() => copiarTexto(
-                      `curl -fsSL https://ais-pre-gblqqchksfkcg6b6rsqrxx-48346512190.us-east1.run.app/instalar.sh | bash`,
+                      `curl -fsSL https://raw.githubusercontent.com/monetizacionreymonfr2-max/Bibi-Store/main/public/actualizar.sh | bash`,
                       setCopiadoVpsComandoDirecto,
-                      "¡Comando de instalación copiado!"
+                      "¡Comando copiado!"
                     )}
                     className="bg-black text-white hover:bg-emerald-600 border-2 border-black font-bold px-4 py-2 text-xs uppercase tracking-widest flex items-center gap-2 transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)]"
                   >

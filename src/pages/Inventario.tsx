@@ -6,13 +6,13 @@ import { useAuth } from '../contexts/AuthContext';
 import { useConfig } from '../contexts/ConfigContext';
 import { Producto, CATEGORIAS_PRODUCTO } from '../types';
 import { formatUSD, formatBs, cn } from '../lib/utils';
-import { Plus, Edit2, Trash2, Search, X, Scan, Filter, FileDown, FileCode, Package } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, X, Scan, Filter, FileDown, FileCode, Package, UploadCloud } from 'lucide-react';
 import Scanner from '../components/Scanner';
 import toast from 'react-hot-toast';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { exportarProductosJSON, descargarJSON } from '../lib/exportProductos';
-import { getVPSProductos, saveVPSProducto, deleteVPSProducto } from '../lib/vpsService';
+import { getVPSProductos, saveVPSProducto, deleteVPSProducto, migrarTodoAVPS } from '../lib/vpsService';
 
 export default function Inventario() {
   const { role } = useAuth();
@@ -164,6 +164,45 @@ export default function Inventario() {
       if (unsubCost) unsubCost();
     };
   }, [isAdmin]);
+
+  const handleSubirCopiaJSON = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const toastId = toast.loading("Restaurando catálogo desde copia JSON...");
+    try {
+      const text = await file.text();
+      let parsed = JSON.parse(text);
+      let prods: any[] = [];
+      if (Array.isArray(parsed)) {
+        prods = parsed;
+      } else if (parsed && Array.isArray(parsed.productos)) {
+        prods = parsed.productos;
+      } else {
+        throw new Error("El archivo no contiene un formato de lista de productos válido.");
+      }
+
+      if (prods.length === 0) {
+        throw new Error("El archivo no contiene productos.");
+      }
+
+      setProductos(prods);
+      try {
+        localStorage.setItem('bibi_store_cached_productos', JSON.stringify(prods));
+      } catch {}
+
+      try {
+        await migrarTodoAVPS({ productos: prods });
+      } catch (e) {
+        console.warn("Aviso guardando en VPS:", e);
+      }
+
+      toast.success(`🎉 ¡Éxito! ${prods.length} productos cargados y respaldados en la VPS.`, { id: toastId, duration: 6000 });
+      setCargando(false);
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || "Error al procesar el archivo JSON", { id: toastId });
+    }
+  };
 
   const prodFiltrados = productos.filter(p => {
     const term = busqueda.toLowerCase();
@@ -438,6 +477,18 @@ export default function Inventario() {
         </div>
 
         <div className="flex items-center gap-2 w-full md:w-auto">
+          <label 
+            className="bg-yellow-400 text-black border-2 border-black px-3 py-2 font-bold uppercase tracking-wider text-xs hover:bg-black hover:text-white transition-all flex items-center gap-2 whitespace-nowrap shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] cursor-pointer"
+            title="Restaurar catálogo desde copia de seguridad JSON"
+          >
+            <UploadCloud size={16} /> <span className="hidden sm:inline">Restaurar JSON</span>
+            <input 
+              type="file" 
+              accept=".json" 
+              className="hidden" 
+              onChange={handleSubirCopiaJSON}
+            />
+          </label>
           <button 
             onClick={async () => {
               const loadingToast = toast.loading("Exportando catálogo completo con fotos y costos...");
@@ -454,7 +505,7 @@ export default function Inventario() {
             className="bg-emerald-600 text-white border-2 border-black px-3 py-2 font-bold uppercase tracking-wider text-xs hover:bg-black hover:text-white transition-all flex items-center gap-2 whitespace-nowrap shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
             title="Descargar copia completa (710 productos con fotos y costos)"
           >
-            <FileCode size={16} /> <span className="hidden sm:inline">Descargar Copia Completa</span>
+            <FileCode size={16} /> <span className="hidden sm:inline">Descargar Copia</span>
           </button>
           <button 
             onClick={descargarCatalogo}
@@ -490,6 +541,24 @@ export default function Inventario() {
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-yellow-400 mb-3"></div>
             <p className="font-mono text-xs uppercase tracking-widest font-black text-gray-500">Cargando Catálogo de Productos...</p>
+          </div>
+        ) : !cargando && productos.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 px-4 text-center border-2 border-dashed border-black bg-yellow-50/50 my-6">
+            <Package size={48} className="text-black mb-3" />
+            <h3 className="font-black text-base uppercase tracking-wider text-black">Catálogo sin productos cargados</h3>
+            <p className="text-xs text-gray-600 max-w-md mt-1 mb-5 font-medium leading-relaxed">
+              El límite de lecturas de Firebase está activo. Carga tu copia de seguridad <b>bibi_store_productos_completos.json</b> para activar tus 710 productos de inmediato en tu VPS y en esta pantalla.
+            </p>
+            <label className="inline-flex items-center gap-2 bg-yellow-400 text-black border-2 border-black font-black uppercase text-xs px-5 py-3 cursor-pointer hover:bg-black hover:text-white transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-0.5 active:translate-y-0.5">
+              <UploadCloud size={18} />
+              <span>📂 Cargar Archivo JSON de Copia de Seguridad</span>
+              <input 
+                type="file" 
+                accept=".json" 
+                className="hidden" 
+                onChange={handleSubirCopiaJSON}
+              />
+            </label>
           </div>
         ) : (
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6 pb-20">
