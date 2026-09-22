@@ -3,7 +3,6 @@
 # SCRIPT UNIFICADO EN 1 SOLO COMANDO PARA BIBI STORE AUTÓNOMO EN VPS
 # IP: 64.227.15.171
 # ==============================================================================
-set -e
 
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -14,11 +13,6 @@ NC='\033[0m'
 echo -e "${BLUE}==============================================================${NC}"
 echo -e "${GREEN}      ACTIVANDO BIBI STORE AUTÓNOMO Y ACTUALIZADO EN VPS     ${NC}"
 echo -e "${BLUE}==============================================================${NC}"
-
-if [ "$EUID" -ne 0 ]; then
-  echo -e "${RED}Por favor ejecuta como root (o usa sudo).${NC}"
-  exit 1
-fi
 
 BASE_URL="https://ais-pre-gblqqchksfkcg6b6rsqrxx-48346512190.us-east1.run.app"
 FALLBACK_URL="https://ais-dev-gblqqchksfkcg6b6rsqrxx-48346512190.us-east1.run.app"
@@ -236,8 +230,10 @@ app.listen(PORT, '0.0.0.0', () => {
 });
 EOF
 
+NODE_PATH=$(which node 2>/dev/null || echo "/usr/bin/node")
+
 # Crear servicio systemd
-cat << 'EOF' > /etc/systemd/system/bibi-backend.service
+cat << EOF > /etc/systemd/system/bibi-backend.service
 [Unit]
 Description=Bibi Store VPS Backend Service
 After=network.target
@@ -246,7 +242,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/var/www/bibi-store
-ExecStart=/usr/bin/node /var/www/bibi-store/server/vps_server.cjs
+ExecStart=${NODE_PATH} /var/www/bibi-store/server/vps_server.cjs
 Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
