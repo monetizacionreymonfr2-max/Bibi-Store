@@ -11,32 +11,36 @@ echo -e "${BLUE}==============================================================${
 echo -e "${GREEN}    ACTUALIZANDO BIBI STORE A LA ÚLTIMA VERSIÓN EN TU VPS    ${NC}"
 echo -e "${BLUE}==============================================================${NC}"
 
-# URLs de descarga
-APP_URL="https://ais-pre-gblqqchksfkcg6b6rsqrxx-48346512190.us-east1.run.app"
-DEV_URL="https://ais-dev-gblqqchksfkcg6b6rsqrxx-48346512190.us-east1.run.app"
+APP_DIR="/var/www/bibi-store"
+REPO_URL="https://github.com/monetizacionreymonfr2-max/Bibi-Store.git"
 
-echo -e "${YELLOW}[1/3] Descargando última versión de Bibi Store...${NC}"
-mkdir -p /var/www/bibi-store/dist
-rm -f /tmp/bibi-store-dist.tar.gz
+mkdir -p "$APP_DIR"
+cd "$APP_DIR"
 
-if curl -fSL "${APP_URL}/bibi-store-dist.tar.gz" -o /tmp/bibi-store-dist.tar.gz; then
-  echo "✓ Paquete descargado con éxito desde el servidor principal."
-elif curl -fSL "${DEV_URL}/bibi-store-dist.tar.gz" -o /tmp/bibi-store-dist.tar.gz; then
-  echo "✓ Paquete descargado desde servidor alternativo."
+echo -e "${YELLOW}[1/3] Obteniendo la última versión desde GitHub...${NC}"
+if [ -d ".git" ]; then
+    git fetch --all
+    git reset --hard origin/main || git pull origin main
 else
-  echo -e "${RED}Error al descargar paquete de actualización.${NC}"
-  exit 1
+    rm -rf /tmp/bibi-repo-temp
+    git clone "$REPO_URL" /tmp/bibi-repo-temp
+    cp -r /tmp/bibi-repo-temp/. "$APP_DIR/"
+    rm -rf /tmp/bibi-repo-temp
 fi
 
-echo -e "${YELLOW}[2/3] Instalando archivos en /var/www/bibi-store/dist...${NC}"
-tar -xzf /tmp/bibi-store-dist.tar.gz -C /var/www/bibi-store/dist
-rm -f /tmp/bibi-store-dist.tar.gz
+echo -e "${YELLOW}[2/3] Compilando la aplicación (Vite + React)...${NC}"
+export NODE_OPTIONS="--max-old-space-size=768"
+if [ ! -d "node_modules" ] || [ ! -f "node_modules/.bin/vite" ]; then
+    echo "Instalando dependencias necesarias..."
+    npm install --no-audit --no-fund
+fi
 
-echo -e "${YELLOW}[3/3] Recargando Nginx y servicios...${NC}"
+npm run build
+
+echo -e "${YELLOW}[3/3] Recargando Nginx...${NC}"
 systemctl reload nginx || systemctl restart nginx || true
-systemctl restart bibi-backend || true
 
 echo -e "${GREEN}==============================================================${NC}"
-echo -e "${GREEN}  ✓ ¡BIBI STORE ACTUALIZADO CON ÉXITO EN TU VPS!            ${NC}"
-echo -e "${GREEN}  Ya puedes abrir: http://64.227.15.171                      ${NC}"
+echo -e "${GREEN}  ✓ ¡BIBI STORE ACTUALIZADO EXITOSAMENTE EN TU VPS!          ${NC}"
+echo -e "${GREEN}  Abre en tu navegador: http://64.227.15.171                 ${NC}"
 echo -e "${GREEN}==============================================================${NC}"
