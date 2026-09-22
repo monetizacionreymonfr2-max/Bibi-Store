@@ -8,7 +8,7 @@ import React, { useEffect, useState } from "react";
 import BibiStoreLogo from "./BibiStoreLogo";
 
 export default function Layout() {
-  const { role, user } = useAuth();
+  const { role, user, logout } = useAuth();
   const { tasaDolar } = useConfig();
   const location = useLocation();
   const [offline, setOffline] = useState(!navigator.onLine);
@@ -72,7 +72,7 @@ export default function Layout() {
               {user?.email?.[0] || 'U'}
             </div>
             <button 
-              onClick={signOut}
+              onClick={logout}
               className="text-gray-400 hover:text-white p-2 flex items-center justify-center transition-colors ml-2 cursor-pointer"
               title="Cerrar sesión"
             >

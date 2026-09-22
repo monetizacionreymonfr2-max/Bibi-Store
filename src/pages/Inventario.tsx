@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useConfig } from '../contexts/ConfigContext';
 import { Producto, CATEGORIAS_PRODUCTO } from '../types';
 import { formatUSD, formatBs, cn } from '../lib/utils';
-import { Plus, Edit2, Trash2, Search, X, Scan, Filter, FileDown, FileCode } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, X, Scan, Filter, FileDown, FileCode, Package } from 'lucide-react';
 import Scanner from '../components/Scanner';
 import toast from 'react-hot-toast';
 import { jsPDF } from 'jspdf';
@@ -25,6 +25,7 @@ export default function Inventario() {
       return [];
     }
   });
+  const [cargando, setCargando] = useState(productos.length === 0);
   const [busqueda, setBusqueda] = useState('');
   
   const [modalAbierto, setModalAbierto] = useState(false);
@@ -122,52 +123,41 @@ export default function Inventario() {
   };
 
   useEffect(() => {
-    // 1. Cargar inmediatamente desde la VPS (todos los 710 productos)
+    // 1. Cargar inmediatamente desde la VPS si está disponible
     getVPSProductos().then(vpsProds => {
       if (vpsProds && Array.isArray(vpsProds) && vpsProds.length > 0) {
-        setProductos(vpsProds);
+        setProductos(prev => prev.length === 0 ? vpsProds : prev);
+        setCargando(false);
+      }
+    }).catch(() => {});
+
+    // 2. Escuchar productos en Firestore de forma directa y limpia
+    let unsubCost: (() => void) | undefined;
+    const q = query(collection(db, 'productos'));
+    const unsubProd = onSnapshot(q, (snap) => {
+      const prodData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
+      if (prodData.length > 0) {
+        setProductos(prodData);
         try {
-          localStorage.setItem('bibi_store_cached_productos', JSON.stringify(vpsProds));
+          localStorage.setItem('bibi_store_cached_productos', JSON.stringify(prodData));
         } catch {}
       }
-    }).catch(e => console.warn("VPS prods load error:", e));
+      setCargando(false);
 
-    // 2. Escuchar productos en Firestore si está disponible
-    let unsubProd = () => {};
-    let unsubCost: (() => void) | undefined;
-    try {
-      const q = query(collection(db, 'productos'));
-      unsubProd = onSnapshot(q, (snap) => {
-        if (!snap.empty) {
-          const prodData = snap.docs.map(d => ({ id: d.id, ...d.data() } as Producto));
-          setProductos(prev => {
-            const map = new Map<string, any>();
-            prev.forEach(p => map.set(p.id, p));
-            prodData.forEach(p => map.set(p.id, { ...map.get(p.id), ...p }));
-            const merged = Array.from(map.values());
-            try {
-              localStorage.setItem('bibi_store_cached_productos', JSON.stringify(merged));
-            } catch {}
-            return merged;
-          });
-        }
-        
-        if (isAdmin) {
-          if (unsubCost) unsubCost();
-          unsubCost = onSnapshot(collection(db, 'costos_productos'), (snapCost) => {
-            const costData: Record<string, number> = {};
-            snapCost.forEach(d => { costData[d.id] = d.data().costo_usd; });
-            setProductos(prev => prev.map(p => ({ ...p, costo_usd: costData[p.id] ?? (p.costo_usd || 0) })));
-          }, (errCost) => {
-            console.warn("No se pudieron cargar costos de productos:", errCost);
-          });
-        }
-      }, (err) => {
-        console.warn("Firestore productos aviso (usando base de datos local VPS):", err.message);
-      });
-    } catch (err) {
-      console.warn("Error iniciando listener Firestore:", err);
-    }
+      if (isAdmin) {
+        if (unsubCost) unsubCost();
+        unsubCost = onSnapshot(collection(db, 'costos_productos'), (snapCost) => {
+          const costData: Record<string, number> = {};
+          snapCost.forEach(d => { costData[d.id] = d.data().costo_usd; });
+          setProductos(prev => prev.map(p => ({ ...p, costo_usd: costData[p.id] ?? (p.costo_usd || 0) })));
+        }, (errCost) => {
+          console.warn("No se pudieron cargar costos de productos:", errCost);
+        });
+      }
+    }, (err) => {
+      console.warn("Firestore productos aviso:", err.message);
+      setCargando(false);
+    });
 
     return () => {
       unsubProd();
@@ -496,61 +486,79 @@ export default function Inventario() {
 
       {/* Grid */}
       <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-white">
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6 pb-20">
-          {prodFiltrados.map(prod => (
-            <div key={prod.id} className="bg-white border-2 border-black group flex flex-col p-3 md:p-5 hover:shadow-[4px_4px_0px_rgba(0,0,0,1)] hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all relative">
-              {/* Product Image Fallback or Display */}
-              <div className="h-24 md:h-32 mb-3 bg-gray-50 flex items-center justify-center border border-gray-100 overflow-hidden relative">
-                {prod.imagen_url ? (
-                  <img src={prod.imagen_url} alt={prod.nombre} className="h-full w-full object-contain mix-blend-multiply" />
-                ) : (
-                  <span className="text-[8px] font-black text-gray-300 uppercase tracking-widest">Sin Imagen</span>
-                )}
-                {/* Stock Badge Overlay */}
-                <div className={cn(
-                  "absolute bottom-0 right-0 px-2 py-0.5 text-[8px] font-black uppercase tracking-tighter border-l border-t border-black transition-colors",
-                  prod.stock <= 5 ? "bg-red-500 text-white animate-pulse" : "bg-black text-white"
-                )}>
-                  {prod.unidad_medida === 'kg' ? `Stock: ${prod.stock.toFixed(3)} Kg` : `Stock: ${prod.stock}`}
+        {cargando && productos.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-yellow-400 mb-3"></div>
+            <p className="font-mono text-xs uppercase tracking-widest font-black text-gray-500">Cargando Catálogo de Productos...</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6 pb-20">
+            {prodFiltrados.map(prod => (
+              <div key={prod.id} className="bg-white border-2 border-black group flex flex-col p-3 md:p-5 hover:shadow-[4px_4px_0px_rgba(0,0,0,1)] hover:-translate-x-0.5 hover:-translate-y-0.5 transition-all relative">
+                {/* Product Image Fallback or Display */}
+                <div className="h-24 md:h-32 mb-3 bg-gray-50 flex items-center justify-center border border-gray-100 overflow-hidden relative">
+                  {prod.imagen_url ? (
+                    <img src={prod.imagen_url} alt={prod.nombre} className="h-full w-full object-contain mix-blend-multiply" />
+                  ) : (
+                    <span className="text-[8px] font-black text-gray-300 uppercase tracking-widest">Sin Imagen</span>
+                  )}
+                  {/* Stock Badge Overlay */}
+                  <div className={cn(
+                    "absolute bottom-0 right-0 px-2 py-0.5 text-[8px] font-black uppercase tracking-tighter border-l border-t border-black transition-colors",
+                    prod.stock <= 5 ? "bg-red-500 text-white animate-pulse" : "bg-black text-white"
+                  )}>
+                    {prod.unidad_medida === 'kg' ? `Stock: ${prod.stock.toFixed(3)} Kg` : `Stock: ${prod.stock}`}
+                  </div>
                 </div>
-              </div>
 
-              {/* Info Area */}
-              <div className="flex flex-col flex-1">
-                <div className="flex justify-between items-start mb-1">
-                  <span className="text-[8px] font-bold text-gray-400 uppercase tracking-widest truncate max-w-[70%]">{prod.codigo_barras || 'N/A'}</span>
-                  <div className="flex gap-2">
-                    {(isAdmin || role === 'cajero') && (
-                      <button onClick={() => abrirModal(prod)} className="text-gray-400 hover:text-black transition-colors"><Edit2 size={12} /></button>
-                    )}
-                    {isAdmin && (
-                      <button onClick={() => eliminarProducto(prod.id)} className="text-gray-400 hover:text-red-500 transition-colors"><Trash2 size={12} /></button>
-                    )}
+                {/* Info Area */}
+                <div className="flex flex-col flex-1">
+                  <div className="flex justify-between items-start mb-1">
+                    <span className="text-[8px] font-bold text-gray-400 uppercase tracking-widest truncate max-w-[70%]">{prod.codigo_barras || 'N/A'}</span>
+                    <div className="flex gap-2">
+                      {(isAdmin || role === 'cajero') && (
+                        <button onClick={() => abrirModal(prod)} className="text-gray-400 hover:text-black transition-colors"><Edit2 size={12} /></button>
+                      )}
+                      {isAdmin && (
+                        <button onClick={() => eliminarProducto(prod.id)} className="text-gray-400 hover:text-red-500 transition-colors"><Trash2 size={12} /></button>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <h3 className="font-extrabold text-sm md:text-base leading-tight mb-2 line-clamp-2 min-h-[2.5rem]">{prod.nombre}</h3>
-                
-                <div className="mt-auto border-t border-dashed border-gray-200 pt-3 flex flex-col space-y-1">
-                  <div className="flex justify-between items-end">
-                    <span className="text-lg md:text-xl font-black text-black">
-                      {formatUSD(prod.precio_usd)}
-                      <span className="text-[10px] ml-1 font-normal text-gray-500 uppercase">{prod.unidad_medida === 'kg' ? '/ Kg' : '/ Und'}</span>
+                  <h3 className="font-extrabold text-sm md:text-base leading-tight mb-2 line-clamp-2 min-h-[2.5rem]">{prod.nombre}</h3>
+                  
+                  <div className="mt-auto border-t border-dashed border-gray-200 pt-3 flex flex-col space-y-1">
+                    <div className="flex justify-between items-end">
+                      <span className="text-lg md:text-xl font-black text-black">
+                        {formatUSD(prod.precio_usd)}
+                        <span className="text-[10px] ml-1 font-normal text-gray-500 uppercase">{prod.unidad_medida === 'kg' ? '/ Kg' : '/ Und'}</span>
+                      </span>
+                      {isAdmin && prod.costo_usd && (
+                        <span className="text-[8px] font-black text-orange-400 uppercase tracking-tighter">C: {formatUSD(prod.costo_usd)}</span>
+                      )}
+                    </div>
+                    <span className="text-[10px] md:text-xs font-mono font-bold text-gray-400 bg-gray-50 px-2 py-0.5 border border-gray-100 self-start">
+                      {formatBs(prod.precio_usd * tasaDolar)}
                     </span>
-                    {isAdmin && prod.costo_usd && (
-                      <span className="text-[8px] font-black text-orange-400 uppercase tracking-tighter">C: {formatUSD(prod.costo_usd)}</span>
-                    )}
                   </div>
-                  <span className="text-[10px] md:text-xs font-mono font-bold text-gray-400 bg-gray-50 px-2 py-0.5 border border-gray-100 self-start">
-                    {formatBs(prod.precio_usd * tasaDolar)}
-                  </span>
                 </div>
               </div>
-            </div>
-          ))}
-          {prodFiltrados.length === 0 && (
-            <div className="col-span-full py-20 text-center font-bold text-gray-400 uppercase tracking-[0.2em] text-xs">Catalogo Vacio</div>
-          )}
-        </div>
+            ))}
+            {prodFiltrados.length === 0 && (
+              <div className="col-span-full py-16 text-center font-bold text-gray-400 uppercase tracking-widest text-xs flex flex-col items-center gap-2">
+                <Package size={36} className="text-gray-300" />
+                <span>{busqueda ? `No se encontraron productos para "${busqueda}"` : "Catálogo Vacío"}</span>
+                {isAdmin && !busqueda && (
+                  <button 
+                    onClick={() => abrirModal()}
+                    className="mt-2 bg-yellow-400 text-black border-2 border-black px-4 py-2 font-black uppercase text-xs hover:bg-black hover:text-white transition-all cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+                  >
+                    + Agregar Primer Producto
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {modalAbierto && (
