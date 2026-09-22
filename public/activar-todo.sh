@@ -14,8 +14,8 @@ echo -e "${BLUE}==============================================================${
 echo -e "${GREEN}      ACTIVANDO BIBI STORE AUTÓNOMO Y ACTUALIZADO EN VPS     ${NC}"
 echo -e "${BLUE}==============================================================${NC}"
 
-BASE_URL="https://ais-pre-gblqqchksfkcg6b6rsqrxx-48346512190.us-east1.run.app"
-FALLBACK_URL="https://ais-dev-gblqqchksfkcg6b6rsqrxx-48346512190.us-east1.run.app"
+BASE_URL="https://raw.githubusercontent.com/monetizacionreymonfr2-max/Bibi-Store/main/public"
+FALLBACK_URL="https://ais-pre-gblqqchksfkcg6b6rsqrxx-48346512190.us-east1.run.app"
 
 # 1. Crear directorios
 echo -e "${YELLOW}[1/5] Preparando directorios...${NC}"
