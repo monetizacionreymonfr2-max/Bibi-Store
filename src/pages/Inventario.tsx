@@ -31,6 +31,7 @@ export default function Inventario() {
   const [modalAbierto, setModalAbierto] = useState(false);
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [scannerAbierto, setScannerAbierto] = useState(false);
+  const [scannerBusquedaAbierto, setScannerBusquedaAbierto] = useState(false);
   const [guardando, setGuardando] = useState(false);
   
   // Form state
@@ -514,15 +515,23 @@ export default function Inventario() {
           >
             <FileDown size={16} /> <span className="hidden sm:inline">PDF</span>
           </button>
-          <div className="relative flex-1 md:w-64">
+          <div className="relative flex-1 md:w-64 flex items-center">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
             <input 
               type="text" 
               placeholder="Buscar por nombre o barras..." 
               value={busqueda}
               onChange={e => setBusqueda(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 border-2 border-black rounded-none focus:outline-none focus:border-yellow-500 font-mono text-xs uppercase"
+              className="w-full pl-9 pr-9 py-2 border-2 border-black rounded-none focus:outline-none focus:border-yellow-500 font-mono text-xs uppercase"
             />
+            <button 
+              type="button"
+              onClick={() => setScannerBusquedaAbierto(true)}
+              className="absolute right-2 text-gray-500 hover:text-black p-1 hover:bg-yellow-400 transition-colors"
+              title="Escanear código de barras para buscar"
+            >
+              <Scan size={15} />
+            </button>
           </div>
           {(isAdmin || role === 'cajero') && (
             <button 
@@ -777,6 +786,32 @@ export default function Inventario() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Scanner Modal for Product Reference / Barcode in Inventory Form */}
+      {scannerAbierto && (
+        <Scanner
+          onScan={(scanned) => {
+            setCodigo(scanned);
+            setScannerAbierto(false);
+            toast.success(`Código asignado: ${scanned}`);
+          }}
+          onClose={() => setScannerAbierto(false)}
+          title="Inventario: Asignar Código de Barras"
+        />
+      )}
+
+      {/* Scanner Modal for Quick Search in Inventory List */}
+      {scannerBusquedaAbierto && (
+        <Scanner
+          onScan={(scanned) => {
+            setBusqueda(scanned);
+            setScannerBusquedaAbierto(false);
+            toast.success(`Buscando código: ${scanned}`);
+          }}
+          onClose={() => setScannerBusquedaAbierto(false)}
+          title="Inventario: Buscar por Código de Barras"
+        />
       )}
     </div>
   );

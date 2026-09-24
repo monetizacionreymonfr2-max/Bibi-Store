@@ -244,11 +244,18 @@ export default function Vender() {
   };
 
   const handleScan = async (code: string) => {
-    const term = code.toLowerCase();
-    let match = productos.find(p => p.codigo_barras?.toLowerCase() === term);
+    const raw = code.trim();
+    if (!raw) return;
+    const term = raw.toLowerCase();
+    
+    let match = productos.find(p => {
+      if (!p.codigo_barras) return false;
+      const cb = p.codigo_barras.trim().toLowerCase();
+      return cb === term || ('0' + cb) === term || cb === ('0' + term);
+    });
     
     if (!match) {
-      match = await buscarRemoto(code) || undefined;
+      match = await buscarRemoto(raw) || undefined;
     }
 
     if (match) {
@@ -259,10 +266,48 @@ export default function Vender() {
         toast.error(`El producto "${match.nombre}" está agotado.`);
       }
     } else {
-      setBusqueda(code);
-      toast.error("Producto no encontrado. Búsqueda manual activada.");
+      setBusqueda(raw);
+      toast.error(`Código no encontrado (${raw}). Búsqueda manual activada.`);
     }
   };
+
+  // Listener para pistolas lectoras de código de barras USB/Bluetooth físicas
+  useEffect(() => {
+    let buffer = '';
+    let lastKeyTime = Date.now();
+
+    const handleWindowKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA');
+
+      const now = Date.now();
+      const diff = now - lastKeyTime;
+      lastKeyTime = now;
+
+      if (e.key === 'Enter') {
+        if (buffer.length >= 3) {
+          if (diff < 75 || !isInput) {
+            e.preventDefault();
+            handleScan(buffer.trim());
+            buffer = '';
+          }
+        }
+        buffer = '';
+        return;
+      }
+
+      if (diff > 75 && isInput) {
+        buffer = '';
+      }
+
+      if (e.key.length === 1) {
+        buffer += e.key;
+      }
+    };
+
+    window.addEventListener('keydown', handleWindowKeyDown);
+    return () => window.removeEventListener('keydown', handleWindowKeyDown);
+  }, [productos]);
 
   const categoriasConProductos = [...CATEGORIAS_PRODUCTO, 'Sin Categoría'].filter(cat => 
     prodFiltrados.some(p => (p.categoria || 'Sin Categoría') === cat)
@@ -283,9 +328,31 @@ export default function Vender() {
           <div className="relative flex-1">
             <input 
               type="text" 
-              placeholder="Buscar producto por nombre o código..." 
+              placeholder="Buscar producto por nombre o código (Enter para agregar)..." 
               value={busqueda}
               onChange={e => setBusqueda(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && busqueda.trim()) {
+                  e.preventDefault();
+                  const trimmed = busqueda.trim();
+                  const exactMatch = productos.find(p => {
+                    const cb = p.codigo_barras?.trim().toLowerCase();
+                    const nm = p.nombre.trim().toLowerCase();
+                    const t = trimmed.toLowerCase();
+                    return cb === t || ('0' + cb) === t || cb === ('0' + t) || nm === t;
+                  });
+                  if (exactMatch) {
+                    handleScan(exactMatch.codigo_barras || exactMatch.nombre);
+                    setBusqueda('');
+                  } else if (prodFiltrados.length === 1) {
+                    agregarAlCarrito(prodFiltrados[0]);
+                    toast.success(`Añadido: ${prodFiltrados[0].nombre}`);
+                    setBusqueda('');
+                  } else {
+                    handleScan(trimmed);
+                  }
+                }
+              }}
               className="w-full pl-10 pr-4 py-3 border-2 border-black rounded-none focus:outline-none focus:ring-0 focus:border-yellow-500 text-sm"
             />
             <div className="absolute left-3 top-3.5 text-gray-400">
